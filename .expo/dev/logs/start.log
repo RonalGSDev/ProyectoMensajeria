@@ -5681,3 +5681,9 @@
 {"_e":"metro:client_log","_t":1791433826239,"level":"log","data":["Running application \"main\" with appParams:\n","{\"hydrate\": undefined, \"rootTag\": \"#root\"}","\nDevelopment-level warnings: ON.\nPerformance optimizations: OFF."]}
 {"_e":"metro:client_log","_t":1791433826348,"level":"warn","data":["\"shadow*\" style props are deprecated. Use \"boxShadow\"."]}
 {"_e":"metro:client_log","_t":1791433841962,"level":"warn","data":["TouchableWithoutFeedback is deprecated. Please use Pressable."]}
+{"_e":"root:init","_t":1791436398109,"format":"v0-jsonl","version":"57.0.28"}
+{"_e":"env:mode","_t":1791436398115,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1791436398135,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1791436416921,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":true,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1791436431922,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"expo:dev-tools-plugin:load","_t":1791436438615,"plugins":[]}
