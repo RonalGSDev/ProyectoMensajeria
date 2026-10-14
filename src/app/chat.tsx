@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   FlatList,
   Image,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -13,6 +14,8 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Pressable,
+  Alert,
 } from "react-native";
 import { useAppContext } from "../global/global";
 
@@ -36,6 +39,13 @@ const TRANSLATIONS = {
   hi: { online: "ऑनलाइन", placeholder: "एक संदेश लिखें...", contact: "संपर्क" },
 };
 
+const ATTACH_OPTIONS = [
+  { id: "docs", label: "Documentos", icon: "document-text-outline" },
+  { id: "gallery", label: "Galería", icon: "images-outline" },
+  { id: "location", label: "Ubicación", icon: "location-outline" },
+  { id: "camera", label: "Cámara", icon: "camera-outline" },
+] as const;
+
 interface Message {
   id: string;
   text: string;
@@ -43,7 +53,6 @@ interface Message {
   isMe: boolean;
 }
 
-//Lista de mensajes iniciales para la conversación
 const INITIAL_MESSAGES: Message[] = [
   { id: "1", text: "¡Hola! ¿Cómo estás?", time: "11:40 AM", isMe: false },
   {
@@ -58,15 +67,39 @@ const INITIAL_MESSAGES: Message[] = [
 export default function ChatScreen() {
   const router = useRouter();
   const { userName, userAvatar } = useLocalSearchParams();
-
-  const { theme, lang } = useAppContext();
+  const { theme, lang, chatBackground } = useAppContext();
 
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState("");
+  const [attachMenuVisible, setAttachMenuVisible] = useState(false);
 
   const isDark = theme === "dark";
   const currentStyles = getStyles(isDark);
-  const t = TRANSLATIONS[lang];
+  const t = TRANSLATIONS[lang as keyof typeof TRANSLATIONS];
+
+  const hasValidText = inputText.trim().length > 0;
+
+  const handleAttachmentOption = (optionLabel: string) => {
+    setAttachMenuVisible(false);
+    if (Platform.OS === "web") {
+      window.alert(`Próximamente podrás enviar: ${optionLabel}`);
+    } else {
+      Alert.alert(optionLabel, `Próximamente podrás enviar ${optionLabel.toLowerCase()}.`);
+    }
+  };
+
+  const handleSendOrRecord = () => {
+    if (hasValidText) {
+      console.log("Mensaje enviado:", inputText.trim());
+      setInputText(""); 
+    } else {
+      if (Platform.OS === "web") {
+        window.alert("Próximamente podrás grabar notas de voz.");
+      } else {
+        Alert.alert("Nota de voz", "Próximamente podrás grabar notas de voz.");
+      }
+    }
+  };
 
   const renderMessage = ({ item }: { item: Message }) => (
     <View
@@ -88,6 +121,8 @@ export default function ChatScreen() {
     </View>
   );
 
+  const hasImageBackground = chatBackground && (chatBackground.startsWith('file') || chatBackground.startsWith('http'));
+
   return (
     <SafeAreaView style={currentStyles.safeArea}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
@@ -96,6 +131,7 @@ export default function ChatScreen() {
         style={currentStyles.container}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
+        {/* ENCABEZADO */}
         <View style={currentStyles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -104,12 +140,16 @@ export default function ChatScreen() {
             <Ionicons name="arrow-back" size={24} color="#00E5FF" />
           </TouchableOpacity>
 
-          <Image
-            source={{
-              uri: (userAvatar as string) || "",
-            }}
-            style={currentStyles.headerAvatar}
-          />
+          {userAvatar ? (
+            <Image
+              source={{ uri: userAvatar as string }}
+              style={currentStyles.headerAvatar}
+            />
+          ) : (
+            <View style={[currentStyles.headerAvatar, currentStyles.defaultAvatar]}>
+              <Ionicons name="person" size={20} color={isDark ? "#888" : "#999"} />
+            </View>
+          )}
 
           <View style={currentStyles.headerInfo}>
             <Text style={currentStyles.headerName}>
@@ -126,20 +166,61 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
 
-        <FlatList
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={currentStyles.messagesList}
-          inverted={false}
-        />
+        {/* LISTA DE MENSAJES */}
+        <View style={{ flex: 1, backgroundColor: chatBackground || (isDark ? "#121212" : "#F5F5F5") }}>
+          {hasImageBackground ? (
+             <ImageBackground source={{ uri: chatBackground }} style={{ flex: 1 }} resizeMode="cover">
+                <FlatList
+                  data={messages}
+                  keyExtractor={(item) => item.id}
+                  renderItem={renderMessage}
+                  contentContainerStyle={currentStyles.messagesList}
+                  inverted={false}
+                />
+             </ImageBackground>
+          ) : (
+              <FlatList
+                data={messages}
+                keyExtractor={(item) => item.id}
+                renderItem={renderMessage}
+                contentContainerStyle={currentStyles.messagesList}
+                inverted={false}
+              />
+          )}
 
+          {/* MENÚ FLOTANTE DE ADJUNTOS */}
+          {attachMenuVisible && (
+            <View style={[StyleSheet.absoluteFill, { zIndex: 999, elevation: 999 }]}>
+              <Pressable 
+                style={StyleSheet.absoluteFill} 
+                onPress={() => setAttachMenuVisible(false)} 
+              />
+              <View style={currentStyles.attachMenuContainer}>
+                {ATTACH_OPTIONS.map((item) => (
+                  <TouchableOpacity 
+                    key={item.id} 
+                    style={currentStyles.attachOption} 
+                    onPress={() => handleAttachmentOption(item.label)}
+                  >
+                    <Ionicons name={item.icon as any} size={22} color="#00E5FF" style={currentStyles.attachIcon} />
+                    <Text style={currentStyles.attachOptionText}>{item.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* BARRA INFERIOR DE ESCRITURA */}
         <View style={currentStyles.inputContainer}>
-          <TouchableOpacity style={currentStyles.iconButton}>
+          <TouchableOpacity 
+            style={currentStyles.iconButton}
+            onPress={() => setAttachMenuVisible(!attachMenuVisible)}
+          >
             <Ionicons
               name="attach-outline"
               size={28}
-              color={isDark ? "#888" : "#555"}
+              color={attachMenuVisible ? "#00E5FF" : (isDark ? "#888" : "#555")}
             />
           </TouchableOpacity>
 
@@ -150,11 +231,15 @@ export default function ChatScreen() {
             value={inputText}
             onChangeText={setInputText}
             multiline
+            onFocus={() => setAttachMenuVisible(false)}
           />
 
-          <TouchableOpacity style={currentStyles.iconButton}>
+          <TouchableOpacity 
+            style={currentStyles.iconButton}
+            onPress={handleSendOrRecord}
+          >
             <Ionicons
-              name={inputText.length > 0 ? "send" : "mic-outline"}
+              name={hasValidText ? "send" : "mic-outline"}
               size={28}
               color="#00E5FF"
             />
@@ -165,7 +250,6 @@ export default function ChatScreen() {
   );
 }
 
-// Estilos dinámicos según el tema
 const getStyles = (isDark: boolean) =>
   StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: isDark ? "#121212" : "#F5F5F5" },
@@ -185,7 +269,11 @@ const getStyles = (isDark: boolean) =>
       height: 40,
       borderRadius: 20,
       marginRight: 12,
-      backgroundColor: "#333",
+      backgroundColor: isDark ? "#333" : "#DDD",
+    },
+    defaultAvatar: {
+      justifyContent: "center",
+      alignItems: "center",
     },
     headerInfo: { flex: 1 },
     headerName: {
@@ -194,6 +282,35 @@ const getStyles = (isDark: boolean) =>
       fontWeight: "bold",
     },
     headerStatus: { color: "#00E5FF", fontSize: 12 },
+    
+    attachMenuContainer: {
+      position: "absolute",
+      bottom: 10,
+      left: 15,
+      borderRadius: 14,
+      paddingVertical: 8,
+      width: 220,
+      backgroundColor: isDark ? "#1E1E1E" : "#FFFFFF",
+      borderWidth: 1,
+      borderColor: isDark ? "#333" : "#DDD",
+      elevation: 8,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 5,
+    },
+    attachOption: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+    },
+    attachIcon: { marginRight: 16 },
+    attachOptionText: {
+      fontSize: 16,
+      color: isDark ? "#FFF" : "#000",
+    },
+
     messagesList: { padding: 15, paddingBottom: 20 },
     messageBubble: {
       maxWidth: "80%",
@@ -229,6 +346,7 @@ const getStyles = (isDark: boolean) =>
       backgroundColor: isDark ? "#121212" : "#F5F5F5",
       borderTopWidth: 1,
       borderTopColor: isDark ? "#333" : "#DDD",
+      zIndex: 10,
     },
     iconButton: { padding: 5 },
     textInput: {
