@@ -14,17 +14,53 @@ import {
   ImageBackground,
   ActivityIndicator,
   Linking,
-  Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Video, ResizeMode } from "expo-av";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 import { uploadFileToStorage } from "../src/services/storage";
+
+// Subcomponente de video para las burbujas pequeñas del chat
+function ChatVideoItem({ url, onPress }: { url: string; onPress: () => void }) {
+  const player = useVideoPlayer(url, (p) => {
+    p.loop = false;
+  });
+
+  return (
+    <TouchableOpacity activeOpacity={0.9} style={styles.videoContainer} onPress={onPress}>
+      <VideoView
+        player={player}
+        style={styles.chatVideo}
+        nativeControls={false}
+        contentFit="cover"
+      />
+      <View style={styles.playOverlay}>
+        <Ionicons name="play-circle" size={48} color="#FFFFFF" />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// Subcomponente de video para el Modal en pantalla completa
+function ModalVideoItem({ url }: { url: string }) {
+  const player = useVideoPlayer(url, (p) => {
+    p.play();
+  });
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.fullVideo}
+      nativeControls={true}
+      contentFit="contain" // 👈 Ajusta el video 100% visible sin cortes ni zoom
+    />
+  );
+}
 
 export default function ChatScreen() {
   const { colors, chatBackground, t } = useApp();
@@ -41,13 +77,13 @@ export default function ChatScreen() {
   const [attachModalVisible, setAttachModalVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Estado para visor multimedia en pantalla grande (Modal para Imágenes y Videos)
+  // Estado para visor multimedia activo en el Modal
   const [selectedMediaModal, setSelectedMediaModal] = useState<{
     url: string;
     type: "image" | "video";
   } | null>(null);
 
-  // Estado para el archivo pendiente de confirmación
+  // Estado para el archivo pendiente de confirmación antes de enviar
   const [selectedFile, setSelectedFile] = useState<{
     fileToUpload: any;
     uri: string;
@@ -285,7 +321,7 @@ export default function ChatScreen() {
     }
   };
 
-  // Renderizador dinámico del contenido de cada mensaje
+  // Renderizador dinámico del contenido del mensaje
   const renderMessageContent = (item: any, isMe: boolean) => {
     if (item.type === "image") {
       return (
@@ -300,21 +336,10 @@ export default function ChatScreen() {
 
     if (item.type === "video") {
       return (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.videoContainer}
+        <ChatVideoItem
+          url={item.fileUrl}
           onPress={() => setSelectedMediaModal({ url: item.fileUrl, type: "video" })}
-        >
-          <Video
-            source={{ uri: item.fileUrl }}
-            style={[styles.chatVideo, Platform.OS === "web" && ({ objectFit: "contain" } as any)]}
-            useNativeControls={false}
-            resizeMode={ResizeMode.CONTAIN}
-          />
-          <View style={styles.playOverlay}>
-            <Ionicons name="play-circle" size={48} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
+        />
       );
     }
 
@@ -484,7 +509,7 @@ export default function ChatScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Modal Visor de Multimedia en Pantalla Completa (Fotos y Videos) */}
+      {/* Modal Visor de Multimedia en Pantalla Completa */}
       <Modal visible={!!selectedMediaModal} transparent animationType="fade">
         <View style={styles.fullMediaContainer}>
           <TouchableOpacity style={styles.closeFullMediaBtn} onPress={() => setSelectedMediaModal(null)}>
@@ -495,16 +520,7 @@ export default function ChatScreen() {
             {selectedMediaModal?.type === "image" ? (
               <Image source={{ uri: selectedMediaModal.url }} style={styles.fullImage} resizeMode="contain" />
             ) : selectedMediaModal?.type === "video" ? (
-              <Video
-                source={{ uri: selectedMediaModal.url }}
-                style={[
-                  styles.fullVideo,
-                  Platform.OS === "web" && ({ objectFit: "contain" } as any),
-                ]}
-                useNativeControls
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay
-              />
+              <ModalVideoItem url={selectedMediaModal.url} />
             ) : null}
           </View>
         </View>
@@ -625,18 +641,18 @@ const styles = StyleSheet.create({
   menuIcon: { marginRight: 10 },
   menuOptionText: { fontSize: 14, fontWeight: "500" },
 
-  // Visor de multimedia modal
+  // Visor multimedia modal
   fullMediaContainer: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.95)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 10,
-  },
-  modalContentWrapper: {
     width: "100%",
     height: "100%",
-    maxHeight: "80%",
+  },
+  modalContentWrapper: {
+    width: "90%",
+    height: "80%",
     justifyContent: "center",
     alignItems: "center",
   },
