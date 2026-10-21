@@ -22,7 +22,7 @@ import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 
 export default function ChatsScreen() {
-  const { colors } = useApp();
+  const { colors, t } = useApp();
   const router = useRouter();
   const [chats, setChats] = useState<any[]>([]);
   const [profiles, setProfiles] = useState<{ [key: string]: any }>({});
@@ -120,12 +120,12 @@ export default function ChatsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
-      {/* Buscador de conversaciones */}
+      {/* Buscador de conversaciones traducido dinámicamente */}
       <View style={[styles.searchContainer, { backgroundColor: colors.header, borderColor: colors.border }]}>
         <Ionicons name="search" size={20} color={colors.subText} style={{ marginRight: 8 }} />
         <TextInput
           style={[styles.searchInput, { color: colors.text }]}
-          placeholder="Nombre de usuario a buscar..."
+          placeholder={t("search_user")}
           placeholderTextColor={colors.subText}
           value={filterText}
           onChangeText={setFilterText}
@@ -138,7 +138,7 @@ export default function ChatsScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           <Text style={[styles.emptyText, { color: colors.subText }]}>
-            No tienes conversaciones activas.
+            {t("no_users")}
           </Text>
         }
         renderItem={({ item }) => {

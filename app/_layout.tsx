@@ -145,7 +145,16 @@ function RootLayoutNav() {
           ),
         }}
       />
-      <Tabs.Screen name="chat" options={{ href: null }} />
+      
+      {/* Oculta la barra de pestañas al estar dentro de un chat */}
+      <Tabs.Screen 
+        name="chat" 
+        options={{ 
+          href: null, 
+          tabBarStyle: { display: "none" } 
+        }} 
+      />
+      
       <Tabs.Screen name="login" options={{ href: null, tabBarStyle: { display: "none" } }} />
     </Tabs>
   );

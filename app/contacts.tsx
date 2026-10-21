@@ -20,13 +20,12 @@ import {
   setDoc,
   doc,
   onSnapshot,
-  deleteDoc,
 } from "firebase/firestore";
 import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 
 export default function ContactsScreen() {
-  const { colors } = useApp();
+  const { colors, t } = useApp();
   const router = useRouter();
 
   const [savedContacts, setSavedContacts] = useState<any[]>([]);
@@ -66,7 +65,6 @@ export default function ContactsScreen() {
     const cleanSearch = text.trim().toLowerCase();
 
     try {
-      // Buscar coincidencia en correo o en displayName
       const qEmail = query(
         collection(db, "users"),
         where("email", "==", cleanSearch)
@@ -121,7 +119,6 @@ export default function ContactsScreen() {
   const startChat = (contact: any) => {
     if (!currentUser) return;
 
-    // Crear un chatId único ordenando los UIDs
     const chatId = [currentUser.uid, contact.id || contact.friendId]
       .sort()
       .join("_");
@@ -136,17 +133,16 @@ export default function ContactsScreen() {
     });
   };
 
-  // Determinar qué lista renderizar
   const listToDisplay = isSearching ? searchResults : savedContacts;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
-      {/* Buscador Superior */}
+      {/* Buscador Superior Traducido Dinámicamente */}
       <View style={[styles.searchBarContainer, { backgroundColor: colors.header, borderColor: colors.border }]}>
         <Ionicons name="search" size={20} color={colors.subText} style={{ marginRight: 8 }} />
         <TextInput
           style={[styles.searchInput, { color: colors.text }]}
-          placeholder="Buscar contacto por correo o alias..."
+          placeholder={t("search_nickname")}
           placeholderTextColor={colors.subText}
           value={searchText}
           onChangeText={handleSearch}
@@ -170,13 +166,10 @@ export default function ContactsScreen() {
         keyExtractor={(item) => item.id || item.friendId}
         ListEmptyComponent={
           <Text style={[styles.emptyText, { color: colors.subText }]}>
-            {isSearching
-              ? "No se encontró ningún usuario con ese correo o alias."
-              : "Aún no tienes contactos guardados. Busca arriba para agregar uno."}
+            {isSearching ? t("no_users") : t("no_users")}
           </Text>
         }
         renderItem={({ item }) => {
-          // Verificar si el usuario de los resultados de búsqueda ya está guardado
           const isAlreadySaved = savedContacts.some(
             (c) => c.id === item.id || c.friendId === item.id
           );
@@ -204,14 +197,13 @@ export default function ContactsScreen() {
                 </View>
               </View>
 
-              {/* Si estamos en modo búsqueda y aún no está agregado, mostrar botón de agregar */}
               {isSearching && !isAlreadySaved ? (
                 <TouchableOpacity
                   style={[styles.addBtn, { backgroundColor: colors.primary }]}
                   onPress={() => addContact(item)}
                 >
                   <Ionicons name="person-add" size={18} color="#000" />
-                  <Text style={styles.addBtnText}>Agregar</Text>
+                  <Text style={styles.addBtnText}>+</Text>
                 </TouchableOpacity>
               ) : (
                 <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.primary} />
