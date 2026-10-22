@@ -37,7 +37,6 @@ const lightColors = {
   header: "#FFFFFF",
   inputBg: "#EFEFF4",
 };
-
 const translations: Record<Language, Record<string, string>> = {
   es: {
     chats: "Chats",
@@ -66,6 +65,11 @@ const translations: Record<Language, Record<string, string>> = {
     clear_chat: "Vaciar chat",
     today: "HOY",
     yesterday: "AYER",
+    // NUEVAS TRADUCCIONES PARA EL CLIP DE ADJUNTOS
+    attach_docs: "Documentos",
+    attach_gallery: "Galería",
+    attach_camera: "Cámara",
+    attach_location: "Ubicación",
   },
   en: {
     chats: "Chats",
@@ -94,6 +98,11 @@ const translations: Record<Language, Record<string, string>> = {
     clear_chat: "Clear chat",
     today: "TODAY",
     yesterday: "YESTERDAY",
+    // NUEVAS TRADUCCIONES PARA EL CLIP DE ADJUNTOS
+    attach_docs: "Documents",
+    attach_gallery: "Gallery",
+    attach_camera: "Camera",
+    attach_location: "Location",
   },
   zh: {
     chats: "聊天",
@@ -122,6 +131,11 @@ const translations: Record<Language, Record<string, string>> = {
     clear_chat: "清空聊天记录",
     today: "今天",
     yesterday: "昨天",
+    // NUEVAS TRADUCCIONES PARA EL CLIP DE ADJUNTOS
+    attach_docs: "文件",
+    attach_gallery: "图库",
+    attach_camera: "相机",
+    attach_location: "位置",
   },
   ru: {
     chats: "Чаты",
@@ -150,6 +164,11 @@ const translations: Record<Language, Record<string, string>> = {
     clear_chat: "Очистить чат",
     today: "СЕГОДНЯ",
     yesterday: "ВЧЕРА",
+    // NUEVAS TRADUCCIONES PARA EL CLIP DE ADJUNTOS
+    attach_docs: "Документы",
+    attach_gallery: "Галерея",
+    attach_camera: "Камера",
+    attach_location: "Местоположение",
   },
   hi: {
     chats: "चैट",
@@ -165,7 +184,7 @@ const translations: Record<Language, Record<string, string>> = {
     theme_light: "लाइट",
     customization: "निजीकरण",
     chat_bg: "चैट बैकग्राउंड",
-    delete_account: "खाताएं",
+    delete_account: "खाता हटाएं",
     logout: "लॉग आउट",
     solid_colors: "ठोस रंग",
     choose_gallery: "गैलरी से छवि चुनें",
@@ -178,6 +197,11 @@ const translations: Record<Language, Record<string, string>> = {
     clear_chat: "चैट साफ करें",
     today: "आज",
     yesterday: "कल",
+    // NUEVAS TRADUCCIONES PARA EL CLIP DE ADJUNTOS
+    attach_docs: "दस्तावेज़",
+    attach_gallery: "गैलरी",
+    attach_camera: "कैमरा",
+    attach_location: "स्थान",
   },
 };
 

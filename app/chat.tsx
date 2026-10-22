@@ -14,6 +14,8 @@ import {
   ImageBackground,
   ActivityIndicator,
   Linking,
+  Platform,
+  Pressable,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,11 +23,21 @@ import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, s
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { VideoView, useVideoPlayer } from "expo-video";
+import { Audio } from "expo-av";
 import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 import { uploadFileToStorage } from "../src/services/storage";
 
-// Subcomponente de video para las burbujas pequeñas del chat
+// Función auxiliar para formatear los milisegundos a mm:ss
+const formatAudioTime = (millis: number) => {
+  if (!millis) return "00:00";
+  const totalSeconds = Math.floor(millis / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes < 10 ? "0" : ""}${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+};
+
+// Subcomponente de video
 function ChatVideoItem({ url, onPress }: { url: string; onPress: () => void }) {
   const player = useVideoPlayer(url, (p) => {
     p.loop = false;
@@ -33,12 +45,7 @@ function ChatVideoItem({ url, onPress }: { url: string; onPress: () => void }) {
 
   return (
     <TouchableOpacity activeOpacity={0.9} style={styles.videoContainer} onPress={onPress}>
-      <VideoView
-        player={player}
-        style={styles.chatVideo}
-        nativeControls={false}
-        contentFit="cover"
-      />
+      <VideoView player={player} style={styles.chatVideo} nativeControls={false} contentFit="cover" />
       <View style={styles.playOverlay}>
         <Ionicons name="play-circle" size={48} color="#FFFFFF" />
       </View>
@@ -46,19 +53,73 @@ function ChatVideoItem({ url, onPress }: { url: string; onPress: () => void }) {
   );
 }
 
-// Subcomponente de video para el Modal en pantalla completa
+// Subcomponente de video para Modal
 function ModalVideoItem({ url }: { url: string }) {
   const player = useVideoPlayer(url, (p) => {
     p.play();
   });
 
+  return <VideoView player={player} style={styles.fullVideo} nativeControls={true} contentFit="contain" />;
+}
+
+// Subcomponente para reproducir Audio en las burbujas
+function ChatAudioItem({ url, isMe, colors }: { url: string; isMe: boolean; colors: any }) {
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [position, setPosition] = useState(0);
+
+  async function togglePlayback() {
+    if (sound) {
+      if (isPlaying) {
+        await sound.pauseAsync();
+        setIsPlaying(false);
+      } else {
+        // Si el audio terminó, reiniciar antes de darle play
+        if (position >= duration && duration > 0) {
+          await sound.setPositionAsync(0);
+        }
+        await sound.playAsync();
+        setIsPlaying(true);
+      }
+    } else {
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: url },
+        { shouldPlay: true }
+      );
+      setSound(newSound);
+      setIsPlaying(true);
+
+      // Escuchar el progreso de la reproducción
+      newSound.setOnPlaybackStatusUpdate((status: any) => {
+        if (status.isLoaded) {
+          setDuration(status.durationMillis ?? 0);
+          setPosition(status.positionMillis ?? 0);
+          setIsPlaying(status.isPlaying);
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+            newSound.setPositionAsync(0); // Reiniciar al terminar
+          }
+        }
+      });
+    }
+  }
+
+  useEffect(() => {
+    return sound ? () => { sound.unloadAsync(); } : undefined;
+  }, [sound]);
+
   return (
-    <VideoView
-      player={player}
-      style={styles.fullVideo}
-      nativeControls={true}
-      contentFit="contain" // 👈 Ajusta el video 100% visible sin cortes ni zoom
-    />
+    <TouchableOpacity style={styles.audioContainer} onPress={togglePlayback}>
+      <Ionicons name={isPlaying ? "pause-circle" : "play-circle"} size={36} color={isMe ? "#000" : colors.primary} />
+      <View style={styles.audioWaveform}>
+        <Text style={{ color: isMe ? "#000" : colors.text, fontWeight: "500", marginLeft: 8 }}>
+          {duration > 0 
+            ? `${formatAudioTime(position)} / ${formatAudioTime(duration)}` 
+            : "Nota de voz"}
+        </Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -77,18 +138,18 @@ export default function ChatScreen() {
   const [attachModalVisible, setAttachModalVisible] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Estado para visor multimedia activo en el Modal
-  const [selectedMediaModal, setSelectedMediaModal] = useState<{
-    url: string;
-    type: "image" | "video";
-  } | null>(null);
+  // Estados de Grabación
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0); // NUEVO: Estado del cronómetro
 
-  // Estado para el archivo pendiente de confirmación antes de enviar
+  const [selectedMediaModal, setSelectedMediaModal] = useState<{ url: string; type: "image" | "video" } | null>(null);
+
   const [selectedFile, setSelectedFile] = useState<{
     fileToUpload: any;
     uri: string;
     name: string;
-    type: "image" | "video" | "document";
+    type: "image" | "video" | "document" | "audio";
   } | null>(null);
 
   const [chatUser, setChatUser] = useState<{ name: string; photo: string; isOnline?: boolean; lastSeen?: any }>({
@@ -102,7 +163,6 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!chatId || !currentUser) return;
-
     const participants = (chatId as string).split("_");
     const otherUserId = participants.find((id) => id !== currentUser.uid);
 
@@ -119,26 +179,16 @@ export default function ChatScreen() {
           });
         }
       });
-
       return () => unsubscribeUser();
     }
   }, [chatId, currentUser, userName, userPhoto]);
 
   useEffect(() => {
     if (!chatId) return;
-
     setMessages([]);
-
-    const q = query(
-      collection(db, "chats", chatId as string, "messages"),
-      orderBy("createdAt", "desc")
-    );
-
+    const q = query(collection(db, "chats", chatId as string, "messages"), orderBy("createdAt", "desc"));
     const unsubscribeMessages = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
+      const msgs = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       setMessages(msgs);
     });
 
@@ -156,13 +206,11 @@ export default function ChatScreen() {
     if (type === "text") setText("");
 
     const lastMsgText =
-      type === "text"
-        ? msgText
-        : type === "image"
-        ? "📷 Imagen"
-        : type === "video"
-        ? "🎥 Video"
-        : "📄 Documento";
+      type === "text" ? msgText
+      : type === "image" ? "📷 Imagen"
+      : type === "video" ? "🎥 Video"
+      : type === "audio" ? "🎤 Nota de voz"
+      : "📄 Documento";
 
     await addDoc(collection(db, "chats", chatId as string, "messages"), {
       senderId: currentUser.uid,
@@ -174,71 +222,89 @@ export default function ChatScreen() {
     });
 
     const participants = (chatId as string).split("_");
-    await setDoc(
-      doc(db, "chats", chatId as string),
-      {
-        participants,
-        lastMessage: lastMsgText,
-        updatedAt: serverTimestamp(),
-        targetName: chatUser.name,
-        targetPhoto: chatUser.photo,
-      },
-      { merge: true }
-    );
+    await setDoc(doc(db, "chats", chatId as string), {
+      participants,
+      lastMessage: lastMsgText,
+      updatedAt: serverTimestamp(),
+      targetName: chatUser.name,
+      targetPhoto: chatUser.photo,
+    }, { merge: true });
   };
 
-  // 📄 Seleccionar Documentos
+  const startRecording = async () => {
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Permiso denegado", "Se necesita acceso al micrófono para grabar audios.");
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      
+      // Iniciar grabación con monitoreo de tiempo
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        (status) => {
+          setRecordingDuration(status.durationMillis);
+        },
+        100 // Actualizar cada 100ms
+      );
+
+      setRecording(recording);
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Error al grabar", err);
+      Alert.alert("Error", "No se pudo iniciar la grabación.");
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return;
+    setIsRecording(false);
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      if (uri) {
+        setSelectedFile({
+          fileToUpload: uri,
+          uri: uri,
+          name: `audio_${Date.now()}.m4a`,
+          type: "audio",
+        });
+      }
+    } catch (err) {
+      console.error("Error al detener", err);
+    }
+    setRecording(null);
+    setRecordingDuration(0); // Reiniciar cronómetro
+  };
+
   const handleDocument = async () => {
     setAttachModalVisible(false);
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "*/*",
-        copyToCacheDirectory: true,
-      });
-
+      const result = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
-        const fileToUpload = file.file || file.uri;
-
-        setSelectedFile({
-          fileToUpload,
-          uri: file.uri,
-          name: file.name,
-          type: "document",
-        });
+        setSelectedFile({ fileToUpload: file.file || file.uri, uri: file.uri, name: file.name, type: "document" });
       }
     } catch (error) {
       Alert.alert("Error", "No se pudo seleccionar el documento.");
     }
   };
 
-  // 🖼️ Seleccionar Imagen o Video de Galería
   const handleGallery = async () => {
     setAttachModalVisible(false);
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permiso requerido", "Se necesitan permisos para acceder a la galería.");
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        quality: 0.8,
-      });
-
+      if (!permission.granted) return Alert.alert("Permiso requerido", "Se necesitan permisos.");
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 0.8 });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         const isVideo = asset.type === "video" || asset.mimeType?.includes("video");
-        const fileType = isVideo ? "video" : "image";
-        const extension = isVideo ? "mp4" : "jpg";
-        const fileToUpload = (asset as any).file || asset.uri;
-
         setSelectedFile({
-          fileToUpload,
+          fileToUpload: (asset as any).file || asset.uri,
           uri: asset.uri,
-          name: asset.fileName || `${fileType}.${extension}`,
-          type: fileType,
+          name: asset.fileName || `${isVideo ? "video.mp4" : "imagen.jpg"}`,
+          type: isVideo ? "video" : "image",
         });
       }
     } catch (error) {
@@ -246,21 +312,42 @@ export default function ChatScreen() {
     }
   };
 
-  // 🚀 Función para procesar y enviar
+  const handleCamera = async () => {
+    setAttachModalVisible(false);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) return Alert.alert("Permiso requerido", "Se necesitan permisos.");
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setSelectedFile({
+          fileToUpload: (asset as any).file || asset.uri,
+          uri: asset.uri,
+          name: asset.fileName || `foto_${Date.now()}.jpg`,
+          type: "image",
+        });
+      }
+    } catch (error) {
+      Alert.alert("Error", "No se pudo abrir la cámara.");
+    }
+  };
+
   const handleSendPress = async () => {
     if (selectedFile) {
       try {
         setUploading(true);
         const { fileToUpload, name, type } = selectedFile;
         setSelectedFile(null);
-
         const extension = name.split(".").pop() || "file";
         const storagePath = `chats/${chatId}/${type}s/${Date.now()}.${extension}`;
-
         const downloadUrl = await uploadFileToStorage(fileToUpload, storagePath);
         await sendMessage(type, downloadUrl, name);
       } catch (error) {
-        Alert.alert("Error", "No se pudo subir el archivo.");
+        if (Platform.OS === "web") {
+           window.alert("Error: No se pudo subir el archivo.");
+        } else {
+           Alert.alert("Error", "No se pudo subir el archivo.");
+        }
       } finally {
         setUploading(false);
       }
@@ -274,15 +361,6 @@ export default function ChatScreen() {
     Alert.alert("Ubicación", "Próximamente podrás compartir tu ubicación actual.");
   };
 
-  const handleCamera = () => {
-    setAttachModalVisible(false);
-    Alert.alert("Cámara", "Próximamente podrás tomar fotos desde la cámara.");
-  };
-
-  const handleRecordAudio = () => {
-    Alert.alert("Nota de voz", "Próximamente podrás grabar y enviar audios.");
-  };
-
   const formatTime = (timestamp: any) => {
     if (!timestamp) return "";
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -294,15 +372,9 @@ export default function ChatScreen() {
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const today = new Date();
     const isToday = date.toDateString() === today.toDateString();
-
     const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    if (isToday) {
-      return `${t("last_seen_today")} ${timeStr}`;
-    } else {
-      const dateStr = date.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
-      return `${t("last_seen_date")} ${dateStr} ${timeStr}`;
-    }
+    if (isToday) return `${t("last_seen_today") || "Hoy"} ${timeStr}`;
+    return `${t("last_seen_date") || "El"} ${date.toLocaleDateString([], { day: "2-digit", month: "2-digit" })} ${timeStr}`;
   };
 
   const formatDateLabel = (timestamp: any) => {
@@ -311,45 +383,29 @@ export default function ChatScreen() {
     const today = new Date();
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) {
-      return t("today");
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return t("yesterday");
-    } else {
-      return date.toLocaleDateString([], { day: "2-digit", month: "2-digit", year: "numeric" });
-    }
+    if (date.toDateString() === today.toDateString()) return t("today") || "HOY";
+    if (date.toDateString() === yesterday.toDateString()) return t("yesterday") || "AYER";
+    return date.toLocaleDateString([], { day: "2-digit", month: "2-digit", year: "numeric" });
   };
 
-  // Renderizador dinámico del contenido del mensaje
   const renderMessageContent = (item: any, isMe: boolean) => {
     if (item.type === "image") {
       return (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => setSelectedMediaModal({ url: item.fileUrl, type: "image" })}
-        >
+        <TouchableOpacity activeOpacity={0.9} onPress={() => setSelectedMediaModal({ url: item.fileUrl, type: "image" })}>
           <Image source={{ uri: item.fileUrl }} style={styles.chatImage} resizeMode="cover" />
         </TouchableOpacity>
       );
     }
-
     if (item.type === "video") {
-      return (
-        <ChatVideoItem
-          url={item.fileUrl}
-          onPress={() => setSelectedMediaModal({ url: item.fileUrl, type: "video" })}
-        />
-      );
+      return <ChatVideoItem url={item.fileUrl} onPress={() => setSelectedMediaModal({ url: item.fileUrl, type: "video" })} />;
     }
-
+    if (item.type === "audio") {
+      return <ChatAudioItem url={item.fileUrl} isMe={isMe} colors={colors} />;
+    }
     if (item.type === "document") {
       const handleDownload = () => {
         let downloadUrl = item.fileUrl;
-        if (downloadUrl.includes("/upload/")) {
-          downloadUrl = downloadUrl.replace("/upload/", "/upload/fl_attachment/");
-        }
-
+        if (downloadUrl.includes("/upload/")) downloadUrl = downloadUrl.replace("/upload/", "/upload/fl_attachment/");
         if (typeof window !== "undefined" && window.document) {
           const a = document.createElement("a");
           a.href = downloadUrl;
@@ -362,28 +418,18 @@ export default function ChatScreen() {
           Linking.openURL(downloadUrl);
         }
       };
-
       return (
         <TouchableOpacity style={styles.documentContainer} onPress={handleDownload}>
           <Ionicons name="document-text-outline" size={32} color={isMe ? "#000" : colors.primary} />
           <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text numberOfLines={1} style={[styles.documentName, { color: isMe ? "#000" : colors.text }]}>
-              {item.fileName || "Documento"}
-            </Text>
-            <Text style={{ fontSize: 11, color: isMe ? "rgba(0,0,0,0.6)" : colors.subText }}>
-              Toca para descargar
-            </Text>
+            <Text numberOfLines={1} style={[styles.documentName, { color: isMe ? "#000" : colors.text }]}>{item.fileName || "Documento"}</Text>
+            <Text style={{ fontSize: 11, color: isMe ? "rgba(0,0,0,0.6)" : colors.subText }}>Toca para descargar</Text>
           </View>
           <Ionicons name="download-outline" size={20} color={isMe ? "rgba(0,0,0,0.7)" : colors.primary} />
         </TouchableOpacity>
       );
     }
-
-    return (
-      <Text style={isMe ? styles.myMsgText : [styles.theirMsgText, { color: colors.text }]}>
-        {item.text}
-      </Text>
-    );
+    return <Text style={isMe ? styles.myMsgText : [styles.theirMsgText, { color: colors.text }]}>{item.text}</Text>;
   };
 
   const renderChatContent = () => {
@@ -395,11 +441,10 @@ export default function ChatScreen() {
         contentContainerStyle={{ paddingVertical: 10 }}
         renderItem={({ item, index }) => {
           const isMe = item.senderId === currentUser?.uid;
-
           const currentDateLabel = formatDateLabel(item.createdAt);
           const nextItemInArray = messages[index + 1];
           const prevDateLabel = nextItemInArray ? formatDateLabel(nextItemInArray.createdAt) : null;
-          const showDateHeader = currentDateLabel && currentDateLabel !== prevDateLabel;
+          const showDateHeader = currentDateLabel ? currentDateLabel !== prevDateLabel : false;
 
           return (
             <View key={item.id}>
@@ -408,23 +453,10 @@ export default function ChatScreen() {
                   <Text style={[styles.dateHeaderText, { color: colors.subText }]}>{currentDateLabel}</Text>
                 </View>
               ) : null}
-
-              <View
-                style={[
-                  styles.bubble,
-                  isMe
-                    ? [styles.myMsg, { backgroundColor: colors.primary }]
-                    : [styles.theirMsg, { backgroundColor: colors.card }],
-                ]}
-              >
+              
+              <View style={[styles.bubble, isMe ? [styles.myMsg, { backgroundColor: colors.primary }] : [styles.theirMsg, { backgroundColor: colors.card }]]}>
                 {renderMessageContent(item, isMe)}
-
-                <Text
-                  style={[
-                    styles.timeText,
-                    isMe ? styles.myTimeText : [styles.theirTimeText, { color: colors.subText }],
-                  ]}
-                >
+                <Text style={[styles.timeText, isMe ? styles.myTimeText : [styles.theirTimeText, { color: colors.subText }]]}>
                   {formatTime(item.createdAt)}
                 </Text>
               </View>
@@ -441,24 +473,15 @@ export default function ChatScreen() {
         </ImageBackground>
       );
     }
-
-    const backgroundColor = chatBackground?.type === "color" ? chatBackground.value : colors.bg;
-
-    return (
-      <View style={{ flex: 1, backgroundColor }}>
-        {listContent}
-      </View>
-    );
+    return <View style={{ flex: 1, backgroundColor: chatBackground?.type === "color" ? chatBackground.value : colors.bg }}>{listContent}</View>;
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
-      {/* Encabezado */}
       <View style={[styles.header, { backgroundColor: colors.header, borderColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.primary} />
         </TouchableOpacity>
-
         <View style={styles.avatarContainer}>
           {chatUser.photo ? (
             <Image source={{ uri: chatUser.photo }} style={styles.avatar} />
@@ -469,53 +492,30 @@ export default function ChatScreen() {
           )}
           {chatUser.isOnline && <View style={[styles.onlineBadge, { borderColor: colors.header }]} />}
         </View>
-
         <View style={styles.headerInfo}>
           <Text style={[styles.title, { color: colors.text }]}>{chatUser.name}</Text>
           <Text style={[styles.statusText, { color: colors.primary }]}>
-            {chatUser.isOnline ? t("online") : formatLastSeen(chatUser.lastSeen)}
+            {chatUser.isOnline ? t("online") || "En línea" : formatLastSeen(chatUser.lastSeen)}
           </Text>
         </View>
-
         <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.menuBtn}>
           <Ionicons name="ellipsis-vertical" size={22} color={colors.text} />
         </TouchableOpacity>
       </View>
 
-      {/* Indicador de carga al subir archivo */}
       {uploading && (
         <View style={[styles.uploadingBar, { backgroundColor: colors.card }]}>
           <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={{ marginLeft: 10, color: colors.text, fontSize: 13 }}>Subiendo archivo...</Text>
+          <Text style={{ marginLeft: 10, color: colors.text, fontSize: 13 }}>Enviando archivo...</Text>
         </View>
       )}
 
-      {/* Menú de opciones de cabecera */}
-      <Modal visible={menuVisible} transparent animationType="fade">
-        <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={[styles.menuContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <TouchableOpacity style={styles.menuOption} onPress={() => setMenuVisible(false)}>
-                <Ionicons name="person-outline" size={18} color={colors.text} style={styles.menuIcon} />
-                <Text style={[styles.menuOptionText, { color: colors.text }]}>{t("view_contact")}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.menuOption} onPress={() => setMenuVisible(false)}>
-                <Ionicons name="trash-outline" size={18} color="#FF5252" style={styles.menuIcon} />
-                <Text style={[styles.menuOptionText, { color: "#FF5252" }]}>{t("clear_chat")}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Modal Visor de Multimedia en Pantalla Completa */}
+      {/* Visor multimedia pantalla completa */}
       <Modal visible={!!selectedMediaModal} transparent animationType="fade">
         <View style={styles.fullMediaContainer}>
           <TouchableOpacity style={styles.closeFullMediaBtn} onPress={() => setSelectedMediaModal(null)}>
             <Ionicons name="close-circle" size={36} color="#FFFFFF" />
           </TouchableOpacity>
-
           <View style={styles.modalContentWrapper}>
             {selectedMediaModal?.type === "image" ? (
               <Image source={{ uri: selectedMediaModal.url }} style={styles.fullImage} resizeMode="contain" />
@@ -526,88 +526,93 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      {/* Área del chat */}
-      <TouchableWithoutFeedback onPress={() => attachModalVisible && setAttachModalVisible(false)}>
-        <View style={{ flex: 1, position: "relative" }}>
-          {renderChatContent()}
+      <View style={{ flex: 1, position: "relative" }}>
+        {renderChatContent()}
 
-          {/* Menú flotante de adjuntos */}
-          {attachModalVisible && (
+        {attachModalVisible && (
+          <View style={[StyleSheet.absoluteFill, { zIndex: 999, elevation: 999 }]}>
+            <Pressable 
+              style={StyleSheet.absoluteFill} 
+              onPress={() => setAttachModalVisible(false)} 
+            />
             <View style={[styles.attachCardFloating, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <TouchableOpacity style={styles.attachOption} onPress={handleDocument}>
                 <Ionicons name="document-text-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>Documentos</Text>
+                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_docs") || "Documentos"}</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.attachOption} onPress={handleGallery}>
-                <Ionicons name="image-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>Galería</Text>
+                <Ionicons name="images-outline" size={22} color={colors.primary} style={styles.attachIcon} />
+                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_gallery") || "Galería"}</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.attachOption} onPress={handleLocation}>
                 <Ionicons name="location-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>Ubicación</Text>
+                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_location") || "Ubicación"}</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.attachOption} onPress={handleCamera}>
                 <Ionicons name="camera-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>Cámara</Text>
+                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_camera") || "Cámara"}</Text>
               </TouchableOpacity>
             </View>
-          )}
-        </View>
-      </TouchableWithoutFeedback>
+          </View>
+        )}
+      </View>
 
-      {/* Barra de previsualización de archivo antes de enviar */}
+      {/* Previsualización del archivo */}
       {selectedFile && (
         <View style={[styles.previewBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {selectedFile.type === "image" ? (
             <Image source={{ uri: selectedFile.uri }} style={styles.previewImage} />
           ) : selectedFile.type === "video" ? (
             <Ionicons name="videocam-outline" size={32} color={colors.primary} />
+          ) : selectedFile.type === "audio" ? (
+            <Ionicons name="mic-outline" size={32} color={colors.primary} />
           ) : (
             <Ionicons name="document-text-outline" size={32} color={colors.primary} />
           )}
-
           <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text numberOfLines={1} style={[styles.previewText, { color: colors.text }]}>
-              {selectedFile.name}
-            </Text>
+            <Text numberOfLines={1} style={[styles.previewText, { color: colors.text }]}>{selectedFile.name}</Text>
             <Text style={{ fontSize: 11, color: colors.subText }}>Listo para enviar</Text>
           </View>
-
           <TouchableOpacity onPress={() => setSelectedFile(null)} style={{ padding: 6 }}>
             <Ionicons name="close-circle" size={24} color="#FF5252" />
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Input inferior */}
+      {/* Input Inferior con lógica de grabación dinámica */}
       <View style={[styles.inputRow, { backgroundColor: colors.header, borderColor: colors.border }]}>
-        <TouchableOpacity onPress={() => setAttachModalVisible(!attachModalVisible)} style={styles.actionIconBtn}>
-          <Ionicons
-            name="attach-outline"
-            size={26}
-            color={attachModalVisible ? colors.primary : colors.subText}
-          />
-        </TouchableOpacity>
+        {!isRecording && (
+          <TouchableOpacity onPress={() => setAttachModalVisible(!attachModalVisible)} style={styles.actionIconBtn}>
+            <Ionicons name="attach-outline" size={26} color={attachModalVisible ? colors.primary : colors.subText} />
+          </TouchableOpacity>
+        )}
 
-        <TextInput
-          style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
-          value={text}
-          onChangeText={setText}
-          placeholder={selectedFile ? "Añadir un comentario..." : t("type_message")}
-          placeholderTextColor={colors.subText}
-          multiline
-        />
+        {isRecording ? (
+          <View style={[styles.input, styles.recordingIndicator, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.redDot} />
+            <Text style={{ color: colors.text, fontStyle: "italic", marginLeft: 8 }}>
+              Grabando... {formatAudioTime(recordingDuration)}
+            </Text>
+          </View>
+        ) : (
+          <TextInput
+            style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.text }]}
+            value={text}
+            onChangeText={setText}
+            placeholder={selectedFile ? "Añadir un comentario..." : t("type_message") || "Escribe un mensaje..."}
+            placeholderTextColor={colors.subText}
+            multiline
+            onFocus={() => setAttachModalVisible(false)}
+          />
+        )}
 
         {text.trim().length > 0 || selectedFile ? (
           <TouchableOpacity style={styles.sendBtn} onPress={handleSendPress} disabled={uploading}>
             <Ionicons name="send" size={20} color={colors.primary} />
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.actionIconBtn} onPress={handleRecordAudio}>
-            <Ionicons name="mic-outline" size={24} color={colors.subText} />
+          <TouchableOpacity style={styles.actionIconBtn} onPress={isRecording ? stopRecording : startRecording}>
+            <Ionicons name={isRecording ? "stop-circle" : "mic-outline"} size={26} color={isRecording ? "#FF5252" : colors.subText} />
           </TouchableOpacity>
         )}
       </View>
@@ -628,112 +633,43 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 12, marginTop: 1 },
   menuBtn: { padding: 6, marginLeft: 8 },
 
-  uploadingBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-  },
-
+  uploadingBar: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.3)", justifyContent: "flex-start", alignItems: "flex-end" },
   menuContainer: { marginTop: 50, marginRight: 15, borderRadius: 10, paddingVertical: 8, width: 160, borderWidth: 1, elevation: 5 },
   menuOption: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 15 },
   menuIcon: { marginRight: 10 },
   menuOptionText: { fontSize: 14, fontWeight: "500" },
 
-  // Visor multimedia modal
-  fullMediaContainer: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.95)",
-    justifyContent: "center",
-    alignItems: "center",
-    width: "100%",
-    height: "100%",
-  },
-  modalContentWrapper: {
-    width: "90%",
-    height: "80%",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  fullImage: {
-    width: "100%",
-    height: "100%",
-  },
-  fullVideo: {
-    width: "100%",
-    height: "100%",
-  },
-  closeFullMediaBtn: {
-    position: "absolute",
-    top: 40,
-    right: 20,
-    zIndex: 10,
-    padding: 8,
-  },
+  fullMediaContainer: { flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center", alignItems: "center", width: "100%", height: "100%" },
+  modalContentWrapper: { width: "90%", height: "80%", justifyContent: "center", alignItems: "center" },
+  fullImage: { width: "100%", height: "100%" },
+  fullVideo: { width: "100%", height: "100%" },
+  closeFullMediaBtn: { position: "absolute", top: 40, right: 20, zIndex: 10, padding: 8 },
 
-  attachCardFloating: {
-    position: "absolute",
-    bottom: 10,
-    left: 12,
-    width: 200,
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 8,
-    elevation: 10,
-    zIndex: 999,
-  },
-  attachOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
+  attachCardFloating: { position: "absolute", bottom: 10, left: 12, width: 200, borderRadius: 16, borderWidth: 1, paddingVertical: 8, elevation: 10, zIndex: 999 },
+  attachOption: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16 },
   attachIcon: { marginRight: 14 },
   attachOptionText: { fontSize: 15, fontWeight: "500" },
 
   dateHeaderContainer: { alignSelf: "center", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, marginVertical: 12 },
   dateHeaderText: { fontSize: 11, fontWeight: "bold" },
   bubble: { padding: 10, borderRadius: 14, marginVertical: 4, marginHorizontal: 12, maxWidth: "78%" },
-  myMsg: { alignSelf: "flex-end" },
-  theirMsg: { alignSelf: "flex-start" },
+  myMsg: { alignSelf: "flex-end", borderBottomRightRadius: 2 },
+  theirMsg: { alignSelf: "flex-start", borderBottomLeftRadius: 2 },
   myMsgText: { color: "#000", fontSize: 15 },
   theirMsgText: { fontSize: 15 },
 
-  // Adjuntos en chat (Imagen, Video, Doc)
   chatImage: { width: 220, height: 160, borderRadius: 10 },
-  videoContainer: {
-    width: 220,
-    height: 160,
-    borderRadius: 10,
-    overflow: "hidden",
-    position: "relative",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#000000",
-  },
+  videoContainer: { width: 220, height: 160, borderRadius: 10, overflow: "hidden", position: "relative", justifyContent: "center", alignItems: "center", backgroundColor: "#000000" },
   chatVideo: { width: "100%", height: "100%" },
-  playOverlay: {
-    position: "absolute",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.3)",
-    width: "100%",
-    height: "100%",
-  },
+  playOverlay: { position: "absolute", justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.3)", width: "100%", height: "100%" },
   documentContainer: { flexDirection: "row", alignItems: "center", padding: 4 },
   documentName: { fontSize: 14, fontWeight: "bold" },
 
-  // Previsualización antes de enviar
-  previewBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 10,
-    borderTopWidth: 1,
-    marginHorizontal: 8,
-    borderRadius: 10,
-    marginBottom: 4,
-  },
+  audioContainer: { flexDirection: "row", alignItems: "center", paddingRight: 10 },
+  audioWaveform: { flex: 1, justifyContent: "center" },
+
+  previewBar: { flexDirection: "row", alignItems: "center", padding: 10, borderTopWidth: 1, marginHorizontal: 8, borderRadius: 10, marginBottom: 4 },
   previewImage: { width: 42, height: 42, borderRadius: 8 },
   previewText: { fontSize: 14, fontWeight: "bold" },
 
@@ -743,5 +679,9 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 8, alignItems: "center", borderTopWidth: 1 },
   actionIconBtn: { paddingHorizontal: 8, justifyContent: "center", alignItems: "center" },
   input: { flex: 1, borderWidth: 1, borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8, maxHeight: 100, fontSize: 15, marginHorizontal: 4 },
+  
+  recordingIndicator: { flexDirection: "row", alignItems: "center" },
+  redDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#FF5252" },
+  
   sendBtn: { justifyContent: "center", alignItems: "center", paddingHorizontal: 10 },
 });

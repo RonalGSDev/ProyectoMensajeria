@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   Image,
   Alert,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -20,6 +21,7 @@ import {
   setDoc,
   doc,
   onSnapshot,
+  deleteDoc, // NUEVO: Importación para eliminar
 } from "firebase/firestore";
 import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
@@ -115,7 +117,36 @@ export default function ContactsScreen() {
     }
   };
 
-  // 4. Abrir chat con el usuario
+  // 4. NUEVO: Eliminar contacto
+  const deleteContact = async (user: any) => {
+    if (!currentUser) return;
+    try {
+      const contactId = user.id || user.friendId;
+      await deleteDoc(doc(db, "users", currentUser.uid, "friends", contactId));
+    } catch (error) {
+      console.error("Error al eliminar contacto:", error);
+      Alert.alert("Error", "No se pudo eliminar el contacto.");
+    }
+  };
+
+  const confirmDelete = (user: any) => {
+    const name = user.displayName || user.email;
+    if (Platform.OS === "web") {
+      const result = window.confirm(`¿Estás seguro de que deseas eliminar a ${name} de tus contactos?`);
+      if (result) deleteContact(user);
+    } else {
+      Alert.alert(
+        "Eliminar contacto",
+        `¿Eliminar a ${name}?`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Eliminar", style: "destructive", onPress: () => deleteContact(user) },
+        ]
+      );
+    }
+  };
+
+  // 5. Abrir chat con el usuario
   const startChat = (contact: any) => {
     if (!currentUser) return;
 
@@ -137,7 +168,7 @@ export default function ContactsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
-      {/* Buscador Superior Traducido Dinámicamente */}
+      {/* Buscador Superior */}
       <View style={[styles.searchBarContainer, { backgroundColor: colors.header, borderColor: colors.border }]}>
         <Ionicons name="search" size={20} color={colors.subText} style={{ marginRight: 8 }} />
         <TextInput
@@ -178,12 +209,14 @@ export default function ContactsScreen() {
           const photo = item.photoURL || item.photo;
 
           return (
-            <TouchableOpacity
-              style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => startChat(item)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.userInfo}>
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              
+              {/* Lado Izquierdo: Abre el chat */}
+              <TouchableOpacity 
+                style={styles.userInfo} 
+                onPress={() => startChat(item)}
+                activeOpacity={0.7}
+              >
                 {photo ? (
                   <Image source={{ uri: photo }} style={styles.avatar} />
                 ) : (
@@ -195,8 +228,9 @@ export default function ContactsScreen() {
                   <Text style={[styles.name, { color: colors.text }]}>{name}</Text>
                   <Text style={{ color: colors.subText, fontSize: 12 }}>{item.email}</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
 
+              {/* Lado Derecho: Botones de Acción */}
               {isSearching && !isAlreadySaved ? (
                 <TouchableOpacity
                   style={[styles.addBtn, { backgroundColor: colors.primary }]}
@@ -206,9 +240,20 @@ export default function ContactsScreen() {
                   <Text style={styles.addBtnText}>+</Text>
                 </TouchableOpacity>
               ) : (
-                <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.primary} />
+                <View style={styles.actionButtonsContainer}>
+                  {/* Botón Chat */}
+                  <TouchableOpacity onPress={() => startChat(item)} style={styles.iconBtn}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.primary} />
+                  </TouchableOpacity>
+                  
+                  {/* Botón Eliminar */}
+                  <TouchableOpacity onPress={() => confirmDelete(item)} style={styles.iconBtn}>
+                    <Ionicons name="trash-outline" size={22} color="#FF5252" />
+                  </TouchableOpacity>
+                </View>
               )}
-            </TouchableOpacity>
+
+            </View>
           );
         }}
       />
@@ -252,4 +297,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   addBtnText: { color: "#000", fontSize: 12, fontWeight: "bold" },
+  actionButtonsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8, // Separación entre los botones de chat y basura
+  },
+  iconBtn: {
+    padding: 6,
+  }
 });
