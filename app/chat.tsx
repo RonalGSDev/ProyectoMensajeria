@@ -544,10 +544,6 @@ export default function ChatScreen() {
                 <Ionicons name="images-outline" size={22} color={colors.primary} style={styles.attachIcon} />
                 <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_gallery") || "Galería"}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.attachOption} onPress={handleLocation}>
-                <Ionicons name="location-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_location") || "Ubicación"}</Text>
-              </TouchableOpacity>
               <TouchableOpacity style={styles.attachOption} onPress={handleCamera}>
                 <Ionicons name="camera-outline" size={22} color={colors.primary} style={styles.attachIcon} />
                 <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_camera") || "Cámara"}</Text>
