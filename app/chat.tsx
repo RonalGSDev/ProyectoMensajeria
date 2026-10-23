@@ -479,7 +479,7 @@ export default function ChatScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.bg }]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <View style={[styles.header, { backgroundColor: colors.header, borderColor: colors.border, paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.primary} />
@@ -528,8 +528,7 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={{ flex: 1, position: "relative" }}>
+      <View style={{ flex: 1, position: "relative" }}>
           {renderChatContent()}
 
 
@@ -632,8 +631,7 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
       </View>
-      </KeyboardAvoidingView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
