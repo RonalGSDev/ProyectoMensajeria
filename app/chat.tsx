@@ -21,7 +21,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc, getDocs, writeBatch, deleteDoc, updateDoc } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { VideoView, useVideoPlayer } from "expo-video";
@@ -330,6 +330,74 @@ export default function ChatScreen() {
     }
   };
 
+  const handleClearChat = () => {
+    setMenuVisible(false);
+    Alert.alert(
+      "Vaciar chat",
+      "¿Estás seguro de que deseas vaciar este chat? Se eliminarán todos los mensajes.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Vaciar",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (!chatId) return;
+              const messagesRef = collection(db, "chats", chatId as string, "messages");
+              const snapshot = await getDocs(messagesRef);
+              const batch = writeBatch(db);
+              snapshot.docs.forEach((docSnap) => {
+                batch.delete(docSnap.ref);
+              });
+              await batch.commit();
+
+              await updateDoc(doc(db, "chats", chatId as string), {
+                lastMessage: "",
+                updatedAt: serverTimestamp(),
+              });
+            } catch (err: any) {
+              console.error("Error al vaciar chat:", err);
+              Alert.alert("Error", "No se pudo vaciar el chat.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteChat = () => {
+    setMenuVisible(false);
+    Alert.alert(
+      "Borrar chat",
+      "¿Estás seguro de que deseas borrar este chat? Se eliminará la conversación por completo.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Borrar",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (!chatId) return;
+              const messagesRef = collection(db, "chats", chatId as string, "messages");
+              const snapshot = await getDocs(messagesRef);
+              const batch = writeBatch(db);
+              snapshot.docs.forEach((docSnap) => {
+                batch.delete(docSnap.ref);
+              });
+              await batch.commit();
+
+              await deleteDoc(doc(db, "chats", chatId as string));
+              router.replace("/");
+            } catch (err: any) {
+              console.error("Error al borrar chat:", err);
+              Alert.alert("Error", "No se pudo borrar el chat.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSendPress = async () => {
     if (selectedFile) {
       const fileToSend = selectedFile;
@@ -505,6 +573,43 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
+
+      {/* Menú desplegable de los 3 puntos */}
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setMenuVisible(false)}
+        >
+          <View
+            style={[
+              styles.menuContainer,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                marginTop: Math.max(insets.top, 12) + 40,
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.menuOption} onPress={handleClearChat}>
+              <Ionicons name="chatbox-ellipses-outline" size={20} color={colors.text} style={styles.menuIcon} />
+              <Text style={[styles.menuOptionText, { color: colors.text }]}>Vaciar chat</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
+
+            <TouchableOpacity style={styles.menuOption} onPress={handleDeleteChat}>
+              <Ionicons name="trash-outline" size={20} color="#FF5252" style={styles.menuIcon} />
+              <Text style={[styles.menuOptionText, { color: "#FF5252" }]}>Borrar chat</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
       {uploading && (
         <View style={[styles.uploadingBar, { backgroundColor: colors.card }]}>
           <ActivityIndicator size="small" color={colors.primary} />
