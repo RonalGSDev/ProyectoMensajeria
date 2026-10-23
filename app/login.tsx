@@ -48,6 +48,7 @@ export default function LoginScreen() {
       scopes: ["openid", "profile", "email"],
       responseType: AuthSession.ResponseType.IdToken,
       redirectUri,
+      usePKCE: false,
     },
     discovery
   );
