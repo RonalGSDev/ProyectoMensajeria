@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -16,61 +16,24 @@ import {
   GoogleAuthProvider,
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import * as WebBrowser from "expo-web-browser";
-import * as AuthSession from "expo-auth-session";
+import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
 import { auth, googleProvider, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 import { useRouter } from "expo-router";
 
-WebBrowser.maybeCompleteAuthSession();
-
 const GOOGLE_CLIENT_ID =
   "1002368423461-ude2kfft3rbi06177r9kd9h8kfbsqj5n.apps.googleusercontent.com";
 
-const discovery = {
-  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
-  tokenEndpoint: "https://oauth2.googleapis.com/token",
-  revocationEndpoint: "https://oauth2.googleapis.com/revoke",
-};
+if (Platform.OS !== "web") {
+  GoogleSignin.configure({
+    webClientId: GOOGLE_CLIENT_ID,
+  });
+}
 
 export default function LoginScreen() {
   const { colors, t } = useApp();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: "quetzi",
-  });
-
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
-    {
-      clientId: GOOGLE_CLIENT_ID,
-      scopes: ["openid", "profile", "email"],
-      responseType: AuthSession.ResponseType.IdToken,
-      redirectUri,
-      usePKCE: false,
-    },
-    discovery
-  );
-
-  useEffect(() => {
-    if (response?.type === "success") {
-      const { id_token } = response.params;
-      if (id_token) {
-        handleCredentialLogin(id_token);
-      } else {
-        setLoading(false);
-      }
-    } else if (response?.type === "error") {
-      setLoading(false);
-      Alert.alert(
-        "Error de autenticación",
-        response.error?.message || "No se pudo autenticar con Google."
-      );
-    } else if (response?.type === "cancel" || response?.type === "dismiss") {
-      setLoading(false);
-    }
-  }, [response]);
 
   const handleCredentialLogin = async (idToken: string) => {
     setLoading(true);
@@ -121,23 +84,32 @@ export default function LoginScreen() {
           router.replace("/");
         }
       } else {
-        if (!request) {
-          Alert.alert(
-            "Cargando",
-            "El servicio de inicio de sesión se está preparando. Intenta en un momento."
-          );
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        const signInResult = await GoogleSignin.signIn();
+        if (signInResult.type === "success") {
+          const idToken = signInResult.data.idToken;
+          if (idToken) {
+            await handleCredentialLogin(idToken);
+          } else {
+            setLoading(false);
+          }
+        } else {
           setLoading(false);
-          return;
         }
-        await promptAsync();
       }
     } catch (err: any) {
-      console.error("Error al iniciar sesión:", err);
-      Alert.alert("Error de inicio de sesión", err.message || "Error al iniciar sesión con Google.");
-    } finally {
-      if (Platform.OS === "web") {
-        setLoading(false);
+      if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+        // Cancelado por el usuario
+      } else if (err.code === statusCodes.IN_PROGRESS) {
+        // En progreso
+      } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert("Error", "Los servicios de Google Play no están disponibles o deben actualizarse.");
+      } else {
+        console.error("Error al iniciar sesión con Google:", err);
+        Alert.alert("Error de inicio de sesión", err.message || "Error al iniciar sesión con Google.");
       }
+    } finally {
+      setLoading(false);
     }
   };
 
