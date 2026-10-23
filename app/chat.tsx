@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   Image,
+  KeyboardAvoidingView,
   Modal,
   TouchableWithoutFeedback,
   Alert,
@@ -18,6 +18,7 @@ import {
   Pressable,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
@@ -97,6 +98,7 @@ function ChatAudioItem({ url, isMe, colors }: { url: string; isMe: boolean; colo
 
 export default function ChatScreen() {
   const { colors, chatBackground, t } = useApp();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { chatId, userName, userPhoto } = useLocalSearchParams<{
     chatId: string;
@@ -294,19 +296,23 @@ export default function ChatScreen() {
 
   const handleSendPress = async () => {
     if (selectedFile) {
+      const fileToSend = selectedFile;
       try {
         setUploading(true);
-        const { fileToUpload, name, type } = selectedFile;
+        const { fileToUpload, name, type } = fileToSend;
         setSelectedFile(null);
         const extension = name.split(".").pop() || "file";
         const storagePath = `chats/${chatId}/${type}s/${Date.now()}.${extension}`;
         const downloadUrl = await uploadFileToStorage(fileToUpload, storagePath);
         await sendMessage(type, downloadUrl, name);
-      } catch (error) {
+      } catch (error: any) {
+        console.error("Error al subir archivo:", error);
+        setSelectedFile(fileToSend);
+        const errMsg = error?.message || "No se pudo subir el archivo.";
         if (Platform.OS === "web") {
-           window.alert("Error: No se pudo subir el archivo.");
+           window.alert("Error: " + errMsg);
         } else {
-           Alert.alert("Error", "No se pudo subir el archivo.");
+           Alert.alert("Error al subir archivo", errMsg);
         }
       } finally {
         setUploading(false);
@@ -437,8 +443,8 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
-      <View style={[styles.header, { backgroundColor: colors.header, borderColor: colors.border }]}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+      <View style={[styles.header, { backgroundColor: colors.header, borderColor: colors.border, paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.primary} />
         </TouchableOpacity>
@@ -486,8 +492,9 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      <View style={{ flex: 1, position: "relative" }}>
-        {renderChatContent()}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <View style={{ flex: 1, position: "relative" }}>
+          {renderChatContent()}
 
         {attachModalVisible && (
           <View style={[StyleSheet.absoluteFill, { zIndex: 999, elevation: 999 }]}>
@@ -536,7 +543,7 @@ export default function ChatScreen() {
       )}
 
       {/* Input Inferior con lógica de grabación dinámica */}
-      <View style={[styles.inputRow, { backgroundColor: colors.header, borderColor: colors.border }]}>
+      <View style={[styles.inputRow, { backgroundColor: colors.header, borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
         {!isRecording && (
           <TouchableOpacity onPress={() => setAttachModalVisible(!attachModalVisible)} style={styles.actionIconBtn}>
             <Ionicons name="attach-outline" size={26} color={attachModalVisible ? colors.primary : colors.subText} />
@@ -572,7 +579,8 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
       </View>
-    </SafeAreaView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
