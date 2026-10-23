@@ -16,6 +16,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  Keyboard,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -99,6 +100,22 @@ function ChatAudioItem({ url, isMe, colors }: { url: string; isMe: boolean; colo
 export default function ChatScreen() {
   const { colors, chatBackground, t } = useApp();
   const insets = useSafeAreaInsets();
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setIsKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setIsKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
   const router = useRouter();
   const { chatId, userName, userPhoto } = useLocalSearchParams<{
     chatId: string;
@@ -511,7 +528,7 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ flex: 1, position: "relative" }}>
           {renderChatContent()}
 
@@ -559,7 +576,7 @@ export default function ChatScreen() {
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                bottom: Math.max(insets.bottom, 20) + 55,
+                bottom: (isKeyboardVisible ? 6 : Math.max(insets.bottom, 12)) + 54,
               },
             ]}
           >
@@ -579,7 +596,7 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </Modal>
       {/* Input Inferior con lógica de grabación dinámica */}
-      <View style={[styles.inputRow, { backgroundColor: colors.header, borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 20), paddingTop: 8 }]}>
+      <View style={[styles.inputRow, { backgroundColor: colors.header, borderColor: colors.border, paddingBottom: isKeyboardVisible ? 6 : Math.max(insets.bottom, 12), paddingTop: 6 }]}>
         {!isRecording && (
           <TouchableOpacity onPress={() => setAttachModalVisible(!attachModalVisible)} style={styles.actionIconBtn}>
             <Ionicons name="attach-outline" size={26} color={attachModalVisible ? colors.primary : colors.subText} />

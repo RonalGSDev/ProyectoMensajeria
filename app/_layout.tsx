@@ -1,4 +1,4 @@
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useEffect, useState } from "react";
 import { Tabs, useRouter, useSegments } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +10,7 @@ import { AppProvider, useApp } from "../src/context/AppContext";
 
 function RootLayoutNav() {
   const { colors } = useApp();
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -114,8 +115,9 @@ function RootLayoutNav() {
         tabBarStyle: {
           backgroundColor: colors.header,
           borderTopColor: colors.border,
-          height: 60,
-          paddingBottom: 8,
+          height: 56 + Math.max(insets.bottom, 8),
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 6,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.subText,

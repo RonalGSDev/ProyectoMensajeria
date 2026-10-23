@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Image,
   Modal,
   TouchableWithoutFeedback,
@@ -12,6 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
@@ -120,7 +120,7 @@ export default function SettingsScreen() {
   const currentLangObj = LANGUAGES.find((l) => l.code === language);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
+    <SafeAreaView edges={["top"]} style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* Tarjeta de Perfil */}
       <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={styles.avatarContainer}>

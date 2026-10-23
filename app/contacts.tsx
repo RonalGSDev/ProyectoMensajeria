@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   Image,
   Alert,
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   collection,
   query,
@@ -167,7 +167,7 @@ export default function ContactsScreen() {
   const listToDisplay = isSearching ? searchResults : savedContacts;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
+    <SafeAreaView edges={["top"]} style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* Buscador Superior */}
       <View style={[styles.searchBarContainer, { backgroundColor: colors.header, borderColor: colors.border }]}>
         <Ionicons name="search" size={20} color={colors.subText} style={{ marginRight: 8 }} />

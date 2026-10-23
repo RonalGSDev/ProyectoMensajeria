@@ -5,12 +5,12 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Image,
   TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   collection,
   query,
@@ -119,7 +119,7 @@ export default function ChatsScreen() {
   });
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
+    <SafeAreaView edges={["top"]} style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* Buscador de conversaciones traducido dinámicamente */}
       <View style={[styles.searchContainer, { backgroundColor: colors.header, borderColor: colors.border }]}>
         <Ionicons name="search" size={20} color={colors.subText} style={{ marginRight: 8 }} />
