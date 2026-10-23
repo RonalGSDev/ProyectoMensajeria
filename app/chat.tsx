@@ -243,34 +243,46 @@ export default function ChatScreen() {
   const handleDocument = async () => {
     setAttachModalVisible(false);
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true });
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        copyToCacheDirectory: true,
+      });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
-        setSelectedFile({ fileToUpload: file.file || file.uri, uri: file.uri, name: file.name, type: "document" });
+        setSelectedFile({
+          fileToUpload: file.uri,
+          uri: file.uri,
+          name: file.name,
+          type: "document",
+        });
       }
-    } catch (error) {
-      Alert.alert("Error", "No se pudo seleccionar el documento.");
+    } catch (error: any) {
+      console.error("Error al seleccionar documento:", error);
+      Alert.alert("Error", error?.message || "No se pudo seleccionar el documento.");
     }
   };
 
   const handleGallery = async () => {
     setAttachModalVisible(false);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) return Alert.alert("Permiso requerido", "Se necesitan permisos.");
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 0.8 });
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images", "videos"],
+        quality: 0.8,
+        allowsEditing: false,
+      });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         const isVideo = asset.type === "video" || asset.mimeType?.includes("video");
         setSelectedFile({
-          fileToUpload: (asset as any).file || asset.uri,
+          fileToUpload: asset.uri,
           uri: asset.uri,
-          name: asset.fileName || `${isVideo ? "video.mp4" : "imagen.jpg"}`,
+          name: asset.fileName || (isVideo ? `video_${Date.now()}.mp4` : `imagen_${Date.now()}.jpg`),
           type: isVideo ? "video" : "image",
         });
       }
-    } catch (error) {
-      Alert.alert("Error", "No se pudo seleccionar el archivo.");
+    } catch (error: any) {
+      console.error("Error al abrir galería:", error);
+      Alert.alert("Error", error?.message || "No se pudo seleccionar el archivo.");
     }
   };
 
@@ -278,19 +290,26 @@ export default function ChatScreen() {
     setAttachModalVisible(false);
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) return Alert.alert("Permiso requerido", "Se necesitan permisos.");
-      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+      if (!permission.granted) {
+        Alert.alert("Permiso requerido", "Se necesita permiso de cámara para tomar fotos.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+      });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         setSelectedFile({
-          fileToUpload: (asset as any).file || asset.uri,
+          fileToUpload: asset.uri,
           uri: asset.uri,
           name: asset.fileName || `foto_${Date.now()}.jpg`,
           type: "image",
         });
       }
-    } catch (error) {
-      Alert.alert("Error", "No se pudo abrir la cámara.");
+    } catch (error: any) {
+      console.error("Error al abrir cámara:", error);
+      Alert.alert("Error", error?.message || "No se pudo abrir la cámara.");
     }
   };
 
@@ -492,32 +511,11 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={{ flex: 1, position: "relative" }}>
           {renderChatContent()}
 
-        {attachModalVisible && (
-          <View style={[StyleSheet.absoluteFill, { zIndex: 999, elevation: 999 }]}>
-            <Pressable 
-              style={StyleSheet.absoluteFill} 
-              onPress={() => setAttachModalVisible(false)} 
-            />
-            <View style={[styles.attachCardFloating, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <TouchableOpacity style={styles.attachOption} onPress={handleDocument}>
-                <Ionicons name="document-text-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_docs") || "Documentos"}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.attachOption} onPress={handleGallery}>
-                <Ionicons name="images-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_gallery") || "Galería"}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.attachOption} onPress={handleCamera}>
-                <Ionicons name="camera-outline" size={22} color={colors.primary} style={styles.attachIcon} />
-                <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_camera") || "Cámara"}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+
       </View>
 
       {/* Previsualización del archivo */}
@@ -542,8 +540,46 @@ export default function ChatScreen() {
         </View>
       )}
 
+
+      {/* Modal de Opciones para Adjuntar */}
+      <Modal
+        visible={attachModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAttachModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.attachModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setAttachModalVisible(false)}
+        >
+          <View
+            style={[
+              styles.attachCardFloating,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+                bottom: Math.max(insets.bottom, 20) + 55,
+              },
+            ]}
+          >
+            <TouchableOpacity style={styles.attachOption} onPress={handleDocument}>
+              <Ionicons name="document-text-outline" size={22} color={colors.primary} style={styles.attachIcon} />
+              <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_docs") || "Documentos"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachOption} onPress={handleGallery}>
+              <Ionicons name="images-outline" size={22} color={colors.primary} style={styles.attachIcon} />
+              <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_gallery") || "Galería"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachOption} onPress={handleCamera}>
+              <Ionicons name="camera-outline" size={22} color={colors.primary} style={styles.attachIcon} />
+              <Text style={[styles.attachOptionText, { color: colors.text }]}>{t("attach_camera") || "Cámara"}</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
       {/* Input Inferior con lógica de grabación dinámica */}
-      <View style={[styles.inputRow, { backgroundColor: colors.header, borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <View style={[styles.inputRow, { backgroundColor: colors.header, borderColor: colors.border, paddingBottom: Math.max(insets.bottom, 20), paddingTop: 8 }]}>
         {!isRecording && (
           <TouchableOpacity onPress={() => setAttachModalVisible(!attachModalVisible)} style={styles.actionIconBtn}>
             <Ionicons name="attach-outline" size={26} color={attachModalVisible ? colors.primary : colors.subText} />
@@ -610,7 +646,8 @@ const styles = StyleSheet.create({
   fullVideo: { width: "100%", height: "100%" },
   closeFullMediaBtn: { position: "absolute", top: 40, right: 20, zIndex: 10, padding: 8 },
 
-  attachCardFloating: { position: "absolute", bottom: 10, left: 12, width: 200, borderRadius: 16, borderWidth: 1, paddingVertical: 8, elevation: 10, zIndex: 999 },
+  attachModalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.3)" },
+  attachCardFloating: { position: "absolute", left: 12, width: 200, borderRadius: 16, borderWidth: 1, paddingVertical: 8, elevation: 15, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 },
   attachOption: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16 },
   attachIcon: { marginRight: 14 },
   attachOptionText: { fontSize: 15, fontWeight: "500" },

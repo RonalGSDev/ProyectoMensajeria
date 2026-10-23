@@ -1,3 +1,4 @@
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import React, { useEffect, useState } from "react";
 import { Tabs, useRouter, useSegments } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -162,8 +163,10 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   return (
-    <AppProvider>
-      <RootLayoutNav />
-    </AppProvider>
+    <SafeAreaProvider>
+      <AppProvider>
+        <RootLayoutNav />
+      </AppProvider>
+    </SafeAreaProvider>
   );
 }

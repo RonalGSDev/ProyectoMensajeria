@@ -18,6 +18,17 @@ export const uploadFileToStorage = async (
       resourceType = "raw";
     }
 
+    let mimeType = "application/octet-stream";
+    if (resourceType === "image") {
+      mimeType = extension === "png" ? "image/png" : "image/jpeg";
+    } else if (["m4a", "mp3", "wav", "ogg", "aac", "webm"].includes(extension)) {
+      mimeType = `audio/${extension === "m4a" ? "mp4" : extension}`;
+    } else if (resourceType === "video") {
+      mimeType = "video/mp4";
+    } else if (extension === "pdf") {
+      mimeType = "application/pdf";
+    }
+
     const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${resourceType}/upload`;
 
     // Para entornos móviles nativos (Android / iOS) usamos el uploader nativo de expo-file-system
@@ -31,6 +42,7 @@ export const uploadFileToStorage = async (
         httpMethod: "POST",
         uploadType: FileSystem.FileSystemUploadType.MULTIPART,
         fieldName: "file",
+        mimeType: mimeType,
         parameters: {
           upload_preset: UPLOAD_PRESET,
         },
