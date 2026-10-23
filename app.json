@@ -12,6 +12,7 @@
       "bundleIdentifier": "com.josemau.quetzi"
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "predictiveBackGestureEnabled": false,
       "package": "com.josemau.quetzi",
       "permissions": [

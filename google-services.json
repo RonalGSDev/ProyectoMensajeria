@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1002368423461",
+    "project_id": "proyectochats-7fb31",
+    "storage_bucket": "proyectochats-7fb31.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1002368423461:android:ae888db6ae75b9969a91cc",
+        "android_client_info": {
+          "package_name": "com.josemau.quetzi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1002368423461-ude2kfft3rbi06177r9kd9h8kfbsqj5n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBv1uE41sJqBt5ASGEjJldZUa4KffsXtmE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1002368423461-ude2kfft3rbi06177r9kd9h8kfbsqj5n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
