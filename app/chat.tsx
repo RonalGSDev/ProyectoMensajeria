@@ -23,7 +23,7 @@ import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, s
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { VideoView, useVideoPlayer } from "expo-video";
-import { Audio } from "expo-av";
+import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from "expo-audio";
 import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 import { uploadFileToStorage } from "../src/services/storage";
@@ -64,58 +64,30 @@ function ModalVideoItem({ url }: { url: string }) {
 
 // Subcomponente para reproducir Audio en las burbujas
 function ChatAudioItem({ url, isMe, colors }: { url: string; isMe: boolean; colors: any }) {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [position, setPosition] = useState(0);
+  const player = useAudioPlayer(url);
+  const status = useAudioPlayerStatus(player);
 
-  async function togglePlayback() {
-    if (sound) {
-      if (isPlaying) {
-        await sound.pauseAsync();
-        setIsPlaying(false);
-      } else {
-        // Si el audio terminó, reiniciar antes de darle play
-        if (position >= duration && duration > 0) {
-          await sound.setPositionAsync(0);
-        }
-        await sound.playAsync();
-        setIsPlaying(true);
-      }
+  const togglePlayback = () => {
+    if (status.playing) {
+      player.pause();
     } else {
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: url },
-        { shouldPlay: true }
-      );
-      setSound(newSound);
-      setIsPlaying(true);
-
-      // Escuchar el progreso de la reproducción
-      newSound.setOnPlaybackStatusUpdate((status: any) => {
-        if (status.isLoaded) {
-          setDuration(status.durationMillis ?? 0);
-          setPosition(status.positionMillis ?? 0);
-          setIsPlaying(status.isPlaying);
-          if (status.didJustFinish) {
-            setIsPlaying(false);
-            newSound.setPositionAsync(0); // Reiniciar al terminar
-          }
-        }
-      });
+      if (status.currentTime >= status.duration && status.duration > 0) {
+        player.seekTo(0);
+      }
+      player.play();
     }
-  }
+  };
 
-  useEffect(() => {
-    return sound ? () => { sound.unloadAsync(); } : undefined;
-  }, [sound]);
+  const durationMillis = Math.round((status.duration ?? 0) * 1000);
+  const positionMillis = Math.round((status.currentTime ?? 0) * 1000);
 
   return (
     <TouchableOpacity style={styles.audioContainer} onPress={togglePlayback}>
-      <Ionicons name={isPlaying ? "pause-circle" : "play-circle"} size={36} color={isMe ? "#000" : colors.primary} />
+      <Ionicons name={status.playing ? "pause-circle" : "play-circle"} size={36} color={isMe ? "#000" : colors.primary} />
       <View style={styles.audioWaveform}>
         <Text style={{ color: isMe ? "#000" : colors.text, fontWeight: "500", marginLeft: 8 }}>
-          {duration > 0 
-            ? `${formatAudioTime(position)} / ${formatAudioTime(duration)}` 
+          {durationMillis > 0 
+            ? formatAudioTime(positionMillis) + " / " + formatAudioTime(durationMillis)
             : "Nota de voz"}
         </Text>
       </View>
@@ -139,9 +111,9 @@ export default function ChatScreen() {
   const [uploading, setUploading] = useState(false);
 
   // Estados de Grabación
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0); // NUEVO: Estado del cronómetro
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder, 100);
+  const [isRecording, setIsRecording] = useState(false); // NUEVO: Estado del cronómetro
 
   const [selectedMediaModal, setSelectedMediaModal] = useState<{ url: string; type: "image" | "video" } | null>(null);
 
@@ -233,23 +205,14 @@ export default function ChatScreen() {
 
   const startRecording = async () => {
     try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== "granted") {
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
         Alert.alert("Permiso denegado", "Se necesita acceso al micrófono para grabar audios.");
         return;
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      
-      // Iniciar grabación con monitoreo de tiempo
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        (status) => {
-          setRecordingDuration(status.durationMillis);
-        },
-        100 // Actualizar cada 100ms
-      );
-
-      setRecording(recording);
+      await AudioModule.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setIsRecording(true);
     } catch (err) {
       console.error("Error al grabar", err);
@@ -258,24 +221,21 @@ export default function ChatScreen() {
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
     setIsRecording(false);
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
       if (uri) {
         setSelectedFile({
           fileToUpload: uri,
           uri: uri,
-          name: `audio_${Date.now()}.m4a`,
+          name: "audio_" + Date.now() + ".m4a",
           type: "audio",
         });
       }
     } catch (err) {
       console.error("Error al detener", err);
     }
-    setRecording(null);
-    setRecordingDuration(0); // Reiniciar cronómetro
   };
 
   const handleDocument = async () => {
@@ -587,7 +547,7 @@ export default function ChatScreen() {
           <View style={[styles.input, styles.recordingIndicator, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.redDot} />
             <Text style={{ color: colors.text, fontStyle: "italic", marginLeft: 8 }}>
-              Grabando... {formatAudioTime(recordingDuration)}
+              Grabando... {formatAudioTime(recorderState.durationMillis)}
             </Text>
           </View>
         ) : (
