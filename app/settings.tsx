@@ -9,12 +9,14 @@ import {
   TouchableWithoutFeedback,
   ScrollView,
   Alert,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { auth, db } from "../src/services/firebase";
 import { useApp, Language } from "../src/context/AppContext";
 
@@ -71,6 +73,13 @@ export default function SettingsScreen() {
   }, [currentUser]);
 
   const handleLogout = async () => {
+    try {
+      if (Platform.OS !== "web") {
+        await GoogleSignin.signOut();
+      }
+    } catch (err) {
+      console.log("Error al cerrar sesion Google:", err);
+    }
     await signOut(auth);
   };
 

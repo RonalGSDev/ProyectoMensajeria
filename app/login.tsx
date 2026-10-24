@@ -85,6 +85,7 @@ export default function LoginScreen() {
         }
       } else {
         await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        try { await GoogleSignin.signOut(); } catch {}
         const signInResult = await GoogleSignin.signIn();
         if (signInResult.type === "success") {
           const idToken = signInResult.data.idToken;

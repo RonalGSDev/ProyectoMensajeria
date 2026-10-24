@@ -28,6 +28,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from "expo-audio";
 import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { uploadFileToStorage } from "../src/services/storage";
 
 // Función auxiliar para formatear los milisegundos a mm:ss
@@ -176,15 +177,33 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!chatId) return;
-    setMessages([]);
-    const q = query(collection(db, "chats", chatId as string, "messages"), orderBy("createdAt", "desc"));
-    const unsubscribeMessages = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
-      setMessages(msgs);
+
+    // Cargar mensajes offline si existen
+    AsyncStorage.getItem(`@offline_messages_${chatId}`).then((cached) => {
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMessages((prev) => (prev.length === 0 ? parsed : prev));
+          }
+        } catch {}
+      }
     });
 
+    const q = query(collection(db, "chats", chatId as string, "messages"), orderBy("createdAt", "desc"));
+    const unsubscribeMessages = onSnapshot(
+      q,
+      (snapshot) => {
+        const msgs = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        setMessages(msgs);
+        AsyncStorage.setItem(`@offline_messages_${chatId}`, JSON.stringify(msgs)).catch(() => {});
+      },
+      (error) => {
+        console.log("Firestore chat en modo offline:", error);
+      }
+    );
+
     return () => {
-      setMessages([]);
       unsubscribeMessages();
     };
   }, [chatId]);
@@ -216,6 +235,8 @@ export default function ChatScreen() {
     await setDoc(doc(db, "chats", chatId as string), {
       participants,
       lastMessage: lastMsgText,
+      lastSenderId: currentUser.uid,
+      lastSenderName: currentUser.displayName || currentUser.email || "Usuario",
       updatedAt: serverTimestamp(),
       targetName: chatUser.name,
       targetPhoto: chatUser.photo,
@@ -431,15 +452,28 @@ export default function ChatScreen() {
     Alert.alert("Ubicación", "Próximamente podrás compartir tu ubicación actual.");
   };
 
+  const parseTimestamp = (timestamp: any): Date | null => {
+    if (!timestamp) return null;
+    let d: Date;
+    if (timestamp.toDate) {
+      d = timestamp.toDate();
+    } else if (timestamp.seconds) {
+      d = new Date(timestamp.seconds * 1000);
+    } else {
+      d = new Date(timestamp);
+    }
+    return isNaN(d.getTime()) ? null : d;
+  };
+
   const formatTime = (timestamp: any) => {
-    if (!timestamp) return "";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const date = parseTimestamp(timestamp);
+    if (!date) return "";
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   const formatLastSeen = (timestamp: any) => {
-    if (!timestamp) return "";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const date = parseTimestamp(timestamp);
+    if (!date) return "";
     const today = new Date();
     const isToday = date.toDateString() === today.toDateString();
     const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -448,8 +482,8 @@ export default function ChatScreen() {
   };
 
   const formatDateLabel = (timestamp: any) => {
-    if (!timestamp) return "";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const date = parseTimestamp(timestamp);
+    if (!date) return "";
     const today = new Date();
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);

@@ -20,6 +20,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function ChatsScreen() {
   const { colors, t } = useApp();
@@ -31,30 +32,49 @@ export default function ChatsScreen() {
 
   const currentUser = auth.currentUser;
 
-  // 1. Escuchar los chats en tiempo real sin requerir índice compuesto
+  // 1. Escuchar los chats en tiempo real y cargar de caché offline
   useEffect(() => {
     if (!currentUser) return;
+
+    // Cargar caché offline inmediatamente si no hay internet
+    AsyncStorage.getItem("@offline_chats_list").then((cached) => {
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setChats((prev) => (prev.length === 0 ? parsed : prev));
+          }
+        } catch {}
+      }
+    });
 
     const q = query(
       collection(db, "chats"),
       where("participants", "array-contains", currentUser.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const list = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
 
-      // Ordenar manualmente del más reciente al más antiguo
-      list.sort((a: any, b: any) => {
-        const timeA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : 0;
-        const timeB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : 0;
-        return timeB - timeA;
-      });
+        // Ordenar manualmente del más reciente al más antiguo
+        list.sort((a: any, b: any) => {
+          const timeA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
+          const timeB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
+          return timeB - timeA;
+        });
 
-      setChats(list);
-    });
+        setChats(list);
+        AsyncStorage.setItem("@offline_chats_list", JSON.stringify(list)).catch(() => {});
+      },
+      (error) => {
+        console.log("Firestore en modo offline:", error);
+      }
+    );
 
     return () => unsubscribe();
   }, [currentUser]);
@@ -90,7 +110,15 @@ export default function ChatsScreen() {
 
   const formatTime = (timestamp: any) => {
     if (!timestamp) return "";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    let date: Date;
+    if (timestamp.toDate) {
+      date = timestamp.toDate();
+    } else if (timestamp.seconds) {
+      date = new Date(timestamp.seconds * 1000);
+    } else {
+      date = new Date(timestamp);
+    }
+    if (isNaN(date.getTime())) return "";
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
