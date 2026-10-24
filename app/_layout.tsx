@@ -82,12 +82,17 @@ function RootLayoutNav() {
       try {
         // En Android 13+ (Poco X5 Pro), el canal DEBE existir antes de solicitar permisos
         if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "Mensajes",
+          await Notifications.setNotificationChannelAsync("chat_messages", {
+            name: "Mensajes de chat",
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 250, 250, 250],
             lightColor: "#25D366",
             sound: "default",
+            enableLights: true,
+            enableVibrate: true,
+            showBadge: true,
+            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+            bypassDnd: true,
           });
         }
 
@@ -166,9 +171,10 @@ function RootLayoutNav() {
                   body: messageBody,
                   data: { chatId: change.doc.id },
                   sound: "default",
+                  priority: Notifications.AndroidNotificationPriority.MAX,
                 },
                 trigger: {
-                  channelId: "default",
+                  channelId: "chat_messages",
                 },
               });
             } catch (err) {

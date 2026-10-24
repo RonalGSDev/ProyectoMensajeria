@@ -242,6 +242,38 @@ export default function ChatScreen() {
       targetName: chatUser.name,
       targetPhoto: chatUser.photo,
     }, { merge: true });
+
+    // Disparar Push Notification al destinatario mediante Expo Push Service
+    try {
+      const otherUserId = participants.find((id) => id !== currentUser.uid);
+      if (otherUserId) {
+        const targetDoc = await getDoc(doc(db, "users", otherUserId));
+        if (targetDoc.exists()) {
+          const pushToken = targetDoc.data().pushToken;
+          if (pushToken && typeof pushToken === "string" && pushToken.startsWith("ExponentPushToken")) {
+            await fetch("https://exp.host/--/api/v2/push/send", {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+                "Accept-encoding": "gzip, deflate",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                to: pushToken,
+                title: currentUser.displayName || currentUser.email?.split("@")[0] || "Nuevo mensaje",
+                body: lastMsgText,
+                sound: "default",
+                channelId: "chat_messages",
+                priority: "high",
+                data: { chatId },
+              }),
+            });
+          }
+        }
+      }
+    } catch (notifErr) {
+      console.log("Error enviando push notification:", notifErr);
+    }
   };
 
   const startRecording = async () => {
