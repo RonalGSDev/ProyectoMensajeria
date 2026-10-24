@@ -18,7 +18,8 @@ import {
   onSnapshot,
   doc,
 } from "firebase/firestore";
-import { auth, db } from "../src/services/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db, getCachedOfflineUser } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -29,24 +30,53 @@ export default function ChatsScreen() {
   const [profiles, setProfiles] = useState<{ [key: string]: any }>({});
   const [failedImages, setFailedImages] = useState<{ [key: string]: boolean }>({});
   const [filterText, setFilterText] = useState("");
+  const [currentUser, setCurrentUser] = useState<any>(auth.currentUser);
 
-  const currentUser = auth.currentUser;
-
-  // 1. Escuchar los chats en tiempo real y cargar de caché offline
+  // 1. Cargar caché offline inmediatamente al montar la pantalla
   useEffect(() => {
-    if (!currentUser) return;
+    // Cargar usuario autenticado en caché si aún no está en memoria
+    getCachedOfflineUser().then((cachedUser) => {
+      if (cachedUser) {
+        setCurrentUser((prev: any) => prev || cachedUser);
+      }
+    });
 
-    // Cargar caché offline inmediatamente si no hay internet
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUser(user);
+      }
+    });
+
+    // Cargar chats en caché inmediatamente
     AsyncStorage.getItem("@offline_chats_list").then((cached) => {
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setChats((prev) => (prev.length === 0 ? parsed : prev));
+            setChats(parsed);
           }
         } catch {}
       }
     });
+
+    // Cargar perfiles de usuarios en caché inmediatamente
+    AsyncStorage.getItem("@offline_user_profiles").then((cached) => {
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") {
+            setProfiles(parsed);
+          }
+        } catch {}
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // 2. Escuchar los chats en tiempo real de Firestore
+  useEffect(() => {
+    if (!currentUser?.uid) return;
 
     const q = query(
       collection(db, "chats"),
@@ -61,7 +91,6 @@ export default function ChatsScreen() {
           ...docSnap.data(),
         }));
 
-        // Ordenar manualmente del más reciente al más antiguo
         list.sort((a: any, b: any) => {
           const timeA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0);
           const timeB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0);
@@ -72,18 +101,17 @@ export default function ChatsScreen() {
         AsyncStorage.setItem("@offline_chats_list", JSON.stringify(list)).catch(() => {});
       },
       (error) => {
-        console.log("Firestore en modo offline:", error);
+        console.log("Firestore chats en modo offline:", error);
       }
     );
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser?.uid]);
 
-  // 2. Escuchar en tiempo real los perfiles de la colección 'users'
+  // 3. Escuchar en tiempo real los perfiles de la colección 'users' y persistirlos
   useEffect(() => {
-    if (chats.length === 0 || !currentUser) return;
+    if (chats.length === 0 || !currentUser?.uid) return;
 
-    // Extraer UIDs únicos de los contactos
     const otherUserIds = Array.from(
       new Set(
         chats
@@ -93,20 +121,28 @@ export default function ChatsScreen() {
     );
 
     const unsubscribes = otherUserIds.map((userId) => {
-      return onSnapshot(doc(db, "users", userId as string), (docSnap) => {
-        if (docSnap.exists()) {
-          setProfiles((prev) => ({
-            ...prev,
-            [userId as string]: docSnap.data(),
-          }));
+      return onSnapshot(
+        doc(db, "users", userId as string),
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setProfiles((prev) => {
+              const updated = { ...prev, [userId as string]: data };
+              AsyncStorage.setItem("@offline_user_profiles", JSON.stringify(updated)).catch(() => {});
+              return updated;
+            });
+          }
+        },
+        (err) => {
+          console.log("Perfiles en modo offline:", err);
         }
-      });
+      );
     });
 
     return () => {
       unsubscribes.forEach((unsub) => unsub());
     };
-  }, [chats, currentUser]);
+  }, [chats, currentUser?.uid]);
 
   const formatTime = (timestamp: any) => {
     if (!timestamp) return "";
@@ -133,16 +169,14 @@ export default function ChatsScreen() {
     });
   };
 
-  // Marcar imagen como fallida si no logra cargar
   const handleImageError = (userId: string) => {
     setFailedImages((prev) => ({ ...prev, [userId]: true }));
   };
 
-  // Filtrar chats según la búsqueda
   const filteredChats = chats.filter((chat) => {
-    const otherUserId = chat.participants?.find((id: string) => id !== currentUser?.uid);
-    const profile = profiles[otherUserId];
-    const name = profile?.displayName || profile?.email || chat.targetName || "";
+    const otherUserId = chat.participants?.find((id: string) => id !== (currentUser?.uid || ""));
+    const profile = otherUserId ? profiles[otherUserId] : null;
+    const name = profile?.displayName || profile?.email || chat.targetName || chat.lastSenderName || "Usuario";
     return name.toLowerCase().includes(filterText.toLowerCase());
   });
 
@@ -170,13 +204,13 @@ export default function ChatsScreen() {
           </Text>
         }
         renderItem={({ item }) => {
-          const otherUserId = item.participants?.find((id: string) => id !== currentUser?.uid);
-          const profile = profiles[otherUserId];
+          const otherUserId = item.participants?.find((id: string) => id !== (currentUser?.uid || ""));
+          const profile = otherUserId ? profiles[otherUserId] : null;
 
-          const name = profile?.displayName || profile?.email || item.targetName || "Usuario";
+          const name = profile?.displayName || profile?.email || item.targetName || item.lastSenderName || "Usuario";
           const photo = profile?.photoURL || item.targetPhoto || "";
           const isOnline = profile?.isOnline || false;
-          const hasImageError = failedImages[otherUserId];
+          const hasImageError = otherUserId ? failedImages[otherUserId] : false;
 
           const showPhoto = photo && photo.trim() !== "" && !hasImageError;
 
@@ -191,7 +225,7 @@ export default function ChatsScreen() {
                   <Image
                     source={{ uri: photo }}
                     style={styles.avatar}
-                    onError={() => handleImageError(otherUserId)}
+                    onError={() => otherUserId && handleImageError(otherUserId)}
                   />
                 ) : (
                   <View style={[styles.avatar, styles.defaultAvatar, { backgroundColor: colors.primary }]}>
@@ -225,44 +259,84 @@ export default function ChatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
+    marginHorizontal: 16,
+    marginVertical: 10,
     paddingHorizontal: 12,
-    margin: 12,
-    borderRadius: 12,
-    borderWidth: 1,
     height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
   },
-  searchInput: { flex: 1, fontSize: 15 },
-  emptyText: { textAlign: "center", marginTop: 40, fontSize: 14 },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    height: "100%",
+  },
+  emptyText: {
+    textAlign: "center",
+    marginTop: 40,
+    fontSize: 16,
+  },
   chatCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    marginHorizontal: 12,
-    marginVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 0.5,
   },
-  avatarContainer: { position: "relative", marginRight: 12 },
-  avatar: { width: 48, height: 48, borderRadius: 24 },
-  defaultAvatar: { justifyContent: "center", alignItems: "center" },
-  avatarLetter: { fontSize: 20, fontWeight: "bold", color: "#000" },
+  avatarContainer: {
+    position: "relative",
+    marginRight: 14,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
+  defaultAvatar: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarLetter: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+  },
   onlineBadge: {
     position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#00E676",
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#25D366",
     borderWidth: 2,
   },
-  chatInfo: { flex: 1 },
-  chatHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  userName: { fontWeight: "bold", fontSize: 16, flex: 1, marginRight: 8 },
-  timeText: { fontSize: 12 },
-  lastMessage: { fontSize: 14 },
+  chatInfo: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  chatHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: "600",
+    flex: 1,
+    marginRight: 8,
+  },
+  timeText: {
+    fontSize: 12,
+  },
+  lastMessage: {
+    fontSize: 14,
+  },
 });

@@ -21,12 +21,13 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc, getDocs, writeBatch, deleteDoc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, setDoc, getDocs, writeBatch, deleteDoc, updateDoc, getDoc } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule } from "expo-audio";
-import { auth, db } from "../src/services/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db, getCachedOfflineUser } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { uploadFileToStorage } from "../src/services/storage";

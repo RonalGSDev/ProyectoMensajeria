@@ -17,7 +17,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
-import { auth, googleProvider, db } from "../src/services/firebase";
+import { auth, googleProvider, db, setCachedOfflineUser } from "../src/services/firebase";
 import { useApp } from "../src/context/AppContext";
 import { useRouter } from "expo-router";
 
@@ -53,6 +53,7 @@ export default function LoginScreen() {
           },
           { merge: true }
         );
+        await setCachedOfflineUser(user);
         router.replace("/");
       }
     } catch (err: any) {

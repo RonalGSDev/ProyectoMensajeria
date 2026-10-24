@@ -17,7 +17,7 @@ import { signOut } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
-import { auth, db } from "../src/services/firebase";
+import { auth, db, setCachedOfflineUser } from "../src/services/firebase";
 import { useApp, Language } from "../src/context/AppContext";
 
 const LANGUAGES: { code: Language; label: string }[] = [
@@ -80,6 +80,7 @@ export default function SettingsScreen() {
     } catch (err) {
       console.log("Error al cerrar sesion Google:", err);
     }
+    await setCachedOfflineUser(null);
     await signOut(auth);
   };
 

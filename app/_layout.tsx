@@ -3,10 +3,11 @@ import React, { useEffect, useState } from "react";
 import { Tabs, useRouter, useSegments } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, updateDoc, serverTimestamp, collection, query, where, onSnapshot } from "firebase/firestore";
+import { doc, updateDoc, setDoc, serverTimestamp, collection, query, where, onSnapshot } from "firebase/firestore";
 import { AppState, View, ActivityIndicator, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
-import { auth, db } from "../src/services/firebase";
+import Constants from "expo-constants";
+import { auth, db, getCachedOfflineUser, setCachedOfflineUser } from "../src/services/firebase";
 import { AppProvider, useApp } from "../src/context/AppContext";
 
 if (Platform.OS !== "web") {
@@ -24,18 +25,41 @@ if (Platform.OS !== "web") {
 function RootLayoutNav() {
   const { colors } = useApp();
   const insets = useSafeAreaInsets();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | any | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const segments = useSegments();
 
-  // Escuchar estado de autenticación
+  // Escuchar estado de autenticación y cargar caché offline inmediatamente
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    let isMounted = true;
+
+    // Cargar usuario persistido para modo offline instantáneo
+    getCachedOfflineUser().then((cachedUser) => {
+      if (isMounted && cachedUser) {
+        setUser((prev: any) => prev || cachedUser);
+        setLoading(false);
+      }
+    });
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!isMounted) return;
+      if (currentUser) {
+        setUser(currentUser);
+        await setCachedOfflineUser(currentUser);
+      } else {
+        const cached = await getCachedOfflineUser();
+        if (!cached) {
+          setUser(null);
+        }
+      }
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   // Controlar redirección según autenticación
@@ -50,19 +74,13 @@ function RootLayoutNav() {
     }
   }, [user, loading, segments]);
 
-  // Configuración de Notificaciones (Permisos, Canales y Clic)
+  // Configuración de Notificaciones (Canales, Permisos, Token Push y Clic)
   useEffect(() => {
     if (Platform.OS === "web") return;
 
     const setupNotifications = async () => {
       try {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== "granted") {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-
+        // En Android 13+ (Poco X5 Pro), el canal DEBE existir antes de solicitar permisos
         if (Platform.OS === "android") {
           await Notifications.setNotificationChannelAsync("default", {
             name: "Mensajes",
@@ -72,8 +90,35 @@ function RootLayoutNav() {
             sound: "default",
           });
         }
+
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== "granted") {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+
+        if (finalStatus === "granted" && user?.uid) {
+          const projectId =
+            Constants?.expoConfig?.extra?.eas?.projectId ??
+            Constants?.easConfig?.projectId ??
+            "876ba986-1ca2-4821-8be5-e27412957643";
+
+          try {
+            const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+            if (tokenData && tokenData.data) {
+              await setDoc(
+                doc(db, "users", user.uid),
+                { pushToken: tokenData.data },
+                { merge: true }
+              );
+            }
+          } catch (tokenErr) {
+            console.log("Error obteniendo Expo Push Token:", tokenErr);
+          }
+        }
       } catch (err) {
-        console.log("Error configurando canal de notificaciones:", err);
+        console.log("Error configurando canal/permisos de notificaciones:", err);
       }
     };
 
@@ -89,9 +134,9 @@ function RootLayoutNav() {
     return () => {
       responseSubscription.remove();
     };
-  }, []);
+  }, [user?.uid]);
 
-  // Listener para disparar notificación local cuando llega un mensaje de otro usuario
+  // Listener para disparar notificación local cuando llega un mensaje de otro usuario (en primer plano)
   useEffect(() => {
     if (!user || Platform.OS === "web") return;
 
@@ -110,7 +155,6 @@ function RootLayoutNav() {
       snapshot.docChanges().forEach(async (change) => {
         if (change.type === "modified" || change.type === "added") {
           const data = change.doc.data();
-          // Si el mensaje fue enviado por otra persona
           if (data.lastSenderId && data.lastSenderId !== user.uid) {
             const senderName = data.lastSenderName || "Nuevo mensaje";
             const messageBody = data.lastMessage || "Te ha enviado un mensaje";
@@ -123,7 +167,9 @@ function RootLayoutNav() {
                   data: { chatId: change.doc.id },
                   sound: "default",
                 },
-                trigger: null,
+                trigger: {
+                  channelId: "default",
+                },
               });
             } catch (err) {
               console.log("Error al mostrar notificación local:", err);
@@ -136,11 +182,11 @@ function RootLayoutNav() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user?.uid]);
 
   // Manejar presencia en Firestore (Móvil + Web)
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const userRef = doc(db, "users", user.uid);
 
@@ -151,14 +197,12 @@ function RootLayoutNav() {
           lastSeen: serverTimestamp(),
         });
       } catch (error) {
-        console.log("Error actualizando presencia:", error);
+        // En offline updateDoc fallará silenciosamente sin romper la app
       }
     };
 
-    // Marcar como 'En línea' al ingresar
     setPresence(true);
 
-    // 1. Manejo en Aplicación Móvil (React Native)
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState === "active") {
         setPresence(true);
@@ -167,7 +211,6 @@ function RootLayoutNav() {
       }
     });
 
-    // 2. Manejo en Web (Cambio de pestaña / Cierre de navegador)
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const handleVisibilityChange = () => {
         if (document.visibilityState === "hidden") {
@@ -177,7 +220,6 @@ function RootLayoutNav() {
         }
       };
 
-      // Al cerrar pestaña/navegador en web
       const handleUnload = () => {
         setPresence(false);
       };
@@ -199,7 +241,7 @@ function RootLayoutNav() {
       setPresence(false);
       subscription.remove();
     };
-  }, [user]);
+  }, [user?.uid]);
 
   if (loading) {
     return (

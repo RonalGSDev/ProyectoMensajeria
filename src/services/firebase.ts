@@ -21,7 +21,9 @@ if (Platform.OS === "web") {
   authInstance = getAuth(app);
 } else {
   try {
-    const { getReactNativePersistence } = require("firebase/auth");
+    // @ts-ignore
+    const rnAuth = require("@firebase/auth");
+    const getReactNativePersistence = rnAuth?.getReactNativePersistence;
     if (getReactNativePersistence) {
       authInstance = initializeAuth(app, {
         persistence: getReactNativePersistence(AsyncStorage),
@@ -38,3 +40,30 @@ export const auth = authInstance;
 export const googleProvider = new GoogleAuthProvider();
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+export const getCachedOfflineUser = async () => {
+  try {
+    const raw = await AsyncStorage.getItem("@offline_auth_user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setCachedOfflineUser = async (user: any) => {
+  try {
+    if (user) {
+      await AsyncStorage.setItem(
+        "@offline_auth_user",
+        JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email?.split("@")[0] || "Usuario",
+          photoURL: user.photoURL || "",
+        })
+      );
+    } else {
+      await AsyncStorage.removeItem("@offline_auth_user");
+    }
+  } catch {}
+};
